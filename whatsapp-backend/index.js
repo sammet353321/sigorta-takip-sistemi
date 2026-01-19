@@ -16,9 +16,16 @@ app.listen(port, () => {
 
 // Supabase Setup
 const SUPABASE_URL = 'https://aqubbkxsfwmhfbolkfah.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFxdWJia3hzZndtaGZib2xrZmFoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzcxOTc4MiwiZXhwIjoyMDgzMjk1NzgyfQ.ElFm1IF05APRCpdSM242T63NogL0pnPcgV_4zxnfOPY'; // Hardcoded for demo/dev
+// WARNING: Using service_role key is necessary for backend operations that bypass RLS
+// Ensure this key is kept secret and not exposed to frontend
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+if (!SUPABASE_KEY) {
+    console.error("FATAL ERROR: SUPABASE_SERVICE_ROLE_KEY is missing from environment variables.");
+    // We don't exit process so web server keeps running to show logs
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY || 'placeholder');
 
 // Listen for Group Creation Requests (status = 'creating')
 const groupCreateChannel = supabase
@@ -222,10 +229,16 @@ async function initializeClient(userId) {
             const dataUrl = await qrcode.toDataURL(qr);
             
             // Update Supabase
-            await supabase
+            const { error } = await supabase
                 .from('whatsapp_sessions')
                 .update({ qr_code: dataUrl, updated_at: new Date().toISOString() })
                 .eq('user_id', userId);
+            
+            if (error) {
+                console.error(`Error saving QR to DB for ${userId}:`, error);
+            } else {
+                console.log(`QR saved to DB for ${userId}`);
+            }
         } catch (err) {
             console.error('Error handling QR:', err);
         }
