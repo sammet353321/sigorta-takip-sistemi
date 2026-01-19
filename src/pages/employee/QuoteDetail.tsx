@@ -87,7 +87,7 @@ export default function EmployeeQuoteDetail() {
 
         // Fetch Group Name if needed
         let groupName = null;
-        const misafirInfo = quoteData.misafir_bilgi as any;
+        const misafirInfo = (quoteData as any).misafir_bilgi as any;
         if (misafirInfo?.group_id) {
             const { data: group } = await supabase
                 .from('chat_groups')
@@ -463,9 +463,9 @@ export default function EmployeeQuoteDetail() {
   if (loading) return <div className="flex justify-center items-center h-screen">Yükleniyor...</div>;
   if (!quote) return <div>Teklif bulunamadı</div>;
 
-  const taliName = (quote.misafir_bilgi as any)?.source === 'whatsapp_group' 
+  const taliName = ((quote as any).misafir_bilgi as any)?.source === 'whatsapp_group' 
         ? (quote as any).group_name || 'WhatsApp Grubu'
-        : (quote as any).ilgili_kisi?.name || (quote.misafir_bilgi as any)?.phone || 'Bilinmiyor';
+        : (quote as any).ilgili_kisi?.name || ((quote as any).misafir_bilgi as any)?.phone || 'Bilinmiyor';
 
   return (
     <div className="h-[calc(100vh-100px)] flex flex-col">

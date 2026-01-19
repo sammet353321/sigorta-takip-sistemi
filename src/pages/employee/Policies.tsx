@@ -58,7 +58,7 @@ export default function EmployeePoliciesPage() {
       ...filteredPolicies.map(p => {
         const date = p.dogum_tarihi ? format(new Date(p.dogum_tarihi), 'dd.MM.yyyy') : '';
         const createdDate = format(new Date(p.tarih), 'dd.MM.yyyy');
-        const kesen = user?.user_metadata?.name || 'Ben';
+        const kesen = user?.name || 'Ben';
         const ilgiliKisi = p.ilgili_kisi?.name || '';
         const kartLink = p.kart_bilgisi || '';
         

@@ -62,7 +62,8 @@ export default function AdminQuotesPage() {
             'EK BİLGİLER': q.ek_bilgiler || '-',
             'DURUM': q.durum === 'bekliyor' ? 'Bekliyor' : 
                      q.durum === 'tamamlandi' ? 'Tamamlandı' : 
-                     q.durum === 'iptal' ? 'İptal' : q.durum
+                     q.durum === 'iptal' ? 'İptal' : 
+                     q.durum === 'policelesti' ? 'Poliçeleşti' : q.durum
         }));
 
         const ws = XLSX.utils.json_to_sheet(dataToExport);
