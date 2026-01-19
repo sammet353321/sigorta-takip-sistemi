@@ -223,26 +223,9 @@ async function initializeClient(userId) {
                 '--disable-accelerated-2d-canvas',
                 '--no-first-run',
                 '--no-zygote',
-                '--single-process', // Windows'ta calismaz ama Linux (Render) icin iyidir
-                '--disable-gpu',
-                '--disable-extensions', // Eklentileri kapat
-                '--disable-component-extensions-with-background-pages',
-                '--disable-default-apps',
-                '--mute-audio',
-                '--disable-background-networking',
-                '--disable-background-timer-throttling',
-                '--disable-backgrounding-occluded-windows',
-                '--disable-breakpad',
-                '--disable-client-side-phishing-detection',
-                '--disable-ipc-flooding-protection',
-                '--disable-renderer-backgrounding',
-                '--enable-features=NetworkService,NetworkServiceInProcess'
+                '--disable-gpu'
             ],
-            timeout: 120000 // 120 saniye timeout
-        },
-        webVersionCache: {
-            type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+            timeout: 0 // Sonsuz timeout, Render yavas olabilir
         }
     });
 
