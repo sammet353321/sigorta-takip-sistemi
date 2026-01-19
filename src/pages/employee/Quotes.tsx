@@ -215,7 +215,7 @@ export default function EmployeeQuotesPage() {
                         ) : '-'}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs max-w-xs truncate" title={quote.ek_bilgiler || ''}>
-                        {quote.ek_bilgiler || (quote.misafir_bilgi as any)?.phone || '-'}
+                        {quote.ek_bilgiler || quote.misafir_bilgi?.phone || '-'}
                     </td>
                     <td className="px-4 py-3 text-gray-600">-</td>
                     <td className="px-4 py-3 text-gray-600">-</td>

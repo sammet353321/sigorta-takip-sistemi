@@ -87,7 +87,7 @@ export default function EmployeeQuoteDetail() {
 
         // Fetch Group Name if needed
         let groupName = null;
-        const misafirInfo = (quoteData as any).misafir_bilgi as any;
+        const misafirInfo = quoteData.misafir_bilgi;
         if (misafirInfo?.group_id) {
             const { data: group } = await supabase
                 .from('chat_groups')
@@ -310,7 +310,7 @@ export default function EmployeeQuoteDetail() {
         if (error) throw error;
 
         // 2. Send WhatsApp Message (if source is whatsapp)
-        const misafirInfo = quote?.misafir_bilgi as any;
+        const misafirInfo = quote?.misafir_bilgi;
         
         if (misafirInfo?.source === 'whatsapp' || misafirInfo?.source === 'whatsapp_group') {
             const targetPhone = misafirInfo.phone;
@@ -463,9 +463,9 @@ export default function EmployeeQuoteDetail() {
   if (loading) return <div className="flex justify-center items-center h-screen">Yükleniyor...</div>;
   if (!quote) return <div>Teklif bulunamadı</div>;
 
-  const taliName = ((quote as any).misafir_bilgi as any)?.source === 'whatsapp_group' 
+  const taliName = quote.misafir_bilgi?.source === 'whatsapp_group' 
         ? (quote as any).group_name || 'WhatsApp Grubu'
-        : (quote as any).ilgili_kisi?.name || ((quote as any).misafir_bilgi as any)?.phone || 'Bilinmiyor';
+        : (quote as any).ilgili_kisi?.name || quote.misafir_bilgi?.phone || 'Bilinmiyor';
 
   return (
     <div className="h-[calc(100vh-100px)] flex flex-col">

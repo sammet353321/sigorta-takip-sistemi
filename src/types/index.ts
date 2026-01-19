@@ -9,7 +9,7 @@ export interface User {
   created_at: string;
 }
 
-export type TeklifDurumu = 'bekliyor' | 'islemde' | 'hesaplandi' | 'policelestirme_bekliyor' | 'reddedildi' | 'policelesti';
+export type TeklifDurumu = 'bekliyor' | 'islemde' | 'hesaplandi' | 'policelestirme_bekliyor' | 'reddedildi' | 'policelesti' | 'tamamlandi' | 'iptal';
 
 export interface Teklif {
   id: string;
@@ -41,6 +41,14 @@ export interface Teklif {
   sasi_no?: string; // Mapped to sasi
   tc?: string;      // Mapped to tc_vkn
   ruhsat_seri_no?: string; // Mapped to belge_no
+
+  // Guest Info (JSONB)
+  misafir_bilgi?: {
+    source?: 'whatsapp' | 'whatsapp_group' | 'web';
+    phone?: string;
+    group_id?: string;
+    group_name?: string;
+  };
 
   // Joins
   ilgili_kisi?: { name: string }; // joined user
