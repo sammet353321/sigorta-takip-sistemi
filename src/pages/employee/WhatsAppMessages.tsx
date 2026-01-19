@@ -674,7 +674,7 @@ export default function WhatsAppMessages() {
                                                     className="mt-2 w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded flex items-center justify-center transition-colors"
                                                 >
                                                     <FileText size={14} className="mr-1" />
-                                                    Teklif Oluştur
+                                                    Teklif Hesapla
                                                 </button>
                                             )}
                                         </div>

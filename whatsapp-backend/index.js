@@ -647,8 +647,16 @@ async function initializeClient(userId) {
                 created_at: new Date(msg.timestamp * 1000).toISOString(),
             });
             
-            if (error) console.error('Error saving message:', error);
-            else console.log(`Saved inbound message from ${actualSender} in group ${groupId}`);
+            if (error) {
+                // Ignore unique constraint violation (duplicate message)
+                if (error.code === '23505') {
+                    // console.log('Duplicate message ignored (DB constraint):', msg.id.id);
+                } else {
+                    console.error('Error saving message:', error);
+                }
+            } else {
+                console.log(`Saved inbound message from ${actualSender} in group ${groupId}`);
+            }
             
         } catch (err) {
             console.error('Error handling incoming message:', err);

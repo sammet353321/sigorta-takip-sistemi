@@ -426,9 +426,13 @@ export default function EmployeePoliciesPage() {
                     <td className="px-4 py-3 text-gray-600">{policy.acente || '-'}</td>
                     <td className="px-4 py-3 text-center">
                         {policy.kart_bilgisi ? (
-                            <a href={policy.kart_bilgisi} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-blue-500 hover:text-blue-700" title="Görüntüle">
-                                <Eye size={18} />
-                            </a>
+                            policy.kart_bilgisi.startsWith('http') ? (
+                                <a href={policy.kart_bilgisi} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-blue-500 hover:text-blue-700" title="Görüntüle">
+                                    <Eye size={18} />
+                                </a>
+                            ) : (
+                                <span className="text-xs font-medium text-gray-700">{policy.kart_bilgisi}</span>
+                            )
                         ) : '-'}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs max-w-xs truncate">

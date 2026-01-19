@@ -416,11 +416,11 @@ export default function EmployeeQuoteDetail() {
               setNetPrim(result.net_prim || '');
               setKomisyon(result.komisyon || '');
               
-              alert('Poliçe tarandı ve bilgiler dolduruldu.');
+              toast.success('Poliçe tarandı ve bilgiler dolduruldu.');
           }
       } catch (error: any) {
           console.error('Policy Scan Error:', error);
-          alert('Poliçe taranamadı: ' + error.message);
+          toast.error('Poliçe taranamadı: ' + error.message);
       } finally {
           setPolicyScanning(false);
       }
@@ -459,8 +459,9 @@ export default function EmployeeQuoteDetail() {
               brut_prim: parseFloat(brutPrim) || 0,
               net_prim: parseFloat(netPrim) || 0,
               komisyon: parseFloat(komisyon) || 0,
-              ek_bilgiler: (offerDetails || '') + (policyNotes ? '\n\nNOTLAR: ' + policyNotes : ''), // Append notes
-              kart_bilgisi: policyKartBilgisi || '' // Force string input, no fallback to image if empty
+              ek_bilgiler: policyNotes || '', // Only use policy notes
+              kart_bilgisi: policyKartBilgisi || '', // Force string input, no fallback to image if empty
+              misafir_bilgi: quote?.misafir_bilgi // Copy misafir_bilgi for Tali tracking
           });
 
           if (policyError) throw policyError;
