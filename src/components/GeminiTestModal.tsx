@@ -2,6 +2,7 @@
 import { useState, useRef } from 'react';
 import { Upload, X, Check, Loader2, ScanLine } from 'lucide-react';
 import { analyzeLicenseWithGemini } from '@/lib/gemini';
+import { toast } from 'react-hot-toast';
 
 interface GeminiTestModalProps {
   isOpen: boolean;
@@ -47,7 +48,7 @@ export default function GeminiTestModal({ isOpen, onClose }: GeminiTestModalProp
         model: result.model || ''
       });
     } catch (error: any) {
-      alert('Hata: ' + error.message);
+      toast.error('Hata: ' + error.message);
     } finally {
       setLoading(false);
     }

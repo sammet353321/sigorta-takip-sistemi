@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { Shield } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -126,7 +127,7 @@ export default function Login() {
         </form>
 
         <div className="mt-6 text-center text-sm">
-          <button onClick={() => alert('Yönetici ile iletişime geçiniz.')} className="text-gray-500 hover:text-blue-600 font-medium transition-colors">
+          <button onClick={() => toast.error('Yönetici ile iletişime geçiniz.')} className="text-gray-500 hover:text-blue-600 font-medium transition-colors">
             Şifremi Unuttum
           </button>
         </div>

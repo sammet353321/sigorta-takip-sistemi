@@ -1,13 +1,14 @@
+
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Upload, Car, FileText, Check, Clipboard, ScanLine, Loader2, Sparkles, Hash, AlertCircle } from 'lucide-react';
+import { Upload, Car, FileText, Check, Clipboard, ScanLine, Loader2, Sparkles, Hash, AlertCircle, QrCode } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { analyzeLicenseWithGemini } from '@/lib/gemini';
-import { toast } from 'react-hot-toast';
 
-export default function NewQuote() {
+export default function EmployeeNewQuote() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -33,7 +34,60 @@ export default function NewQuote() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-
+  // Handle WhatsApp Redirection Data
+  useEffect(() => {
+    const initFromWhatsApp = async () => {
+        const state = location.state as any;
+        if (state) {
+            if (state.quoteType) {
+                setFormData(prev => ({ ...prev, urun: state.quoteType }));
+            }
+            if (state.customerPhone) {
+                setFormData(prev => ({ ...prev, notlar: `Müşteri Tel: ${state.customerPhone}\n` + prev.notlar }));
+            }
+            
+            if (state.imageUrl && state.autoScan) {
+                try {
+                    setScanning(true);
+                    setScanStatus('WhatsApp görseli alınıyor...');
+                    
+                    // Fetch the image from URL (it might be a blob url or data url)
+                    const response = await fetch(state.imageUrl);
+                    const blob = await response.blob();
+                    const file = new File([blob], "whatsapp-image.jpg", { type: blob.type });
+                    
+                    setUploadedFile(file);
+                    setPreviewUrl(state.imageUrl);
+                    
+                    // Trigger Analysis
+                    setScanStatus('Gemini AI taranıyor...');
+                    const result = await analyzeLicenseWithGemini(file);
+                    
+                    if (result) {
+                        setFormData(prev => ({
+                            ...prev,
+                            plaka: result.plaka || prev.plaka,
+                            tc_vkn: result.tc_vkn || prev.tc_vkn,
+                            belge_no: result.belge_no || prev.belge_no,
+                            sasi_no: result.sasi_no || prev.sasi_no,
+                            arac_cinsi: result.arac_cinsi || prev.arac_cinsi,
+                            marka: result.marka || prev.marka,
+                            model: result.model || prev.model
+                        }));
+                        setScanStatus('İşlem tamamlandı!');
+                    }
+                } catch (err) {
+                    console.error('Auto-scan error:', err);
+                    setScanStatus('Otomatik tarama hatası.');
+                } finally {
+                    setScanning(false);
+                }
+            }
+        }
+    };
+    
+    initFromWhatsApp();
+  }, [location.state]);
 
   // --- Global Paste Logic ---
   const dragCounter = useRef(0);
@@ -138,12 +192,20 @@ export default function NewQuote() {
       }
 
       if (!imageFound) {
-        toast.error('Panoda uygun resim bulunamadı. Lütfen bir resim dosyasını değil, resmin kendisini kopyaladığınızdan emin olun.');
+        toast.error('Panoda uygun resim bulunamadı.');
       }
     } catch (err) {
       console.error('Paste failed:', err);
-      toast.error('Pano erişimi başarısız veya görsel bulunamadı. "Ctrl+V" deneyin.');
+      toast.error('Pano erişimi başarısız. "Ctrl+V" deneyin.');
     }
+  };
+
+  const handleCopyQrString = () => {
+      // Format: BELGE NO-PLAKA-TC
+      const qrString = `${formData.belge_no}-${formData.plaka}-${formData.tc_vkn}`;
+      navigator.clipboard.writeText(qrString).then(() => {
+          toast.success(`Kopyalandı: ${qrString}`); 
+      }).catch(err => console.error('Copy failed', err));
   };
 
   const processImage = async (file: File) => {
@@ -151,7 +213,6 @@ export default function NewQuote() {
     setScanStatus('Gemini AI taranıyor...');
     
     try {
-        // Use Gemini 2.0 directly
         const result = await analyzeLicenseWithGemini(file);
         
         if (result) {
@@ -166,11 +227,12 @@ export default function NewQuote() {
                 model: result.model || prev.model
             }));
             setScanStatus('İşlem tamamlandı!');
+            toast.success('Belge tarandı ve form dolduruldu.');
         }
     } catch (error: any) {
         console.error('Scanning error:', error);
         setScanStatus('Tarama hatası!');
-        alert(error.message || 'Belge taranırken hata oluştu.');
+        toast.error(error.message || 'Belge taranırken hata oluştu.');
     } finally {
         setTimeout(() => {
             setScanning(false);
@@ -184,17 +246,17 @@ export default function NewQuote() {
     if (!user) return;
     
     if (isSale && !formData.tc_vkn) {
-      alert('SATIŞ durumunda TC/VKN zorunludur!');
+      toast.error('SATIŞ durumunda TC/VKN zorunludur!');
       return;
     }
     
     if (!formData.plaka || !formData.tc_vkn || !formData.belge_no || !formData.sasi_no) {
-        alert('Lütfen zorunlu alanları doldurunuz: TC/VKN, Plaka, Belge No, Şasi No');
+        toast.error('Lütfen zorunlu alanları doldurunuz: TC/VKN, Plaka, Belge No, Şasi No');
         return;
     }
 
     if (formData.tc_vkn.length > 11) {
-        alert('TC/VKN 11 karakterden fazla olamaz.');
+        toast.error('TC/VKN 11 karakterden fazla olamaz.');
         return;
     }
 
@@ -229,16 +291,23 @@ export default function NewQuote() {
           tc_vkn: formData.tc_vkn,
           arac_cinsi: formData.arac_cinsi,
           belge_no: formData.belge_no,
-          tur: formData.urun, // Save selected product
+          sasi_no: formData.sasi_no, // Added sasi_no to DB
+          tur: formData.urun,
           notlar: `MARKA: ${formData.marka} | MODEL: ${formData.model} | ŞASİ: ${formData.sasi_no} | ` + formData.notlar + (isSale ? '\n[DURUM: SATIŞ]' : '\n[DURUM: SATIŞ DEĞİL]'),
           durum: 'bekliyor',
-          kart_bilgisi: fileUrl ? fileUrl : undefined 
+          kart_bilgisi: fileUrl ? fileUrl : undefined,
+          // Add misafir_bilgi if coming from WhatsApp
+          misafir_bilgi: whatsappContext ? {
+              source: whatsappContext.source || 'whatsapp',
+              phone: whatsappContext.phone,
+              group_id: whatsappContext.groupId
+          } : undefined
         });
 
       if (error) throw error;
 
-      navigate('/sub-agent/dashboard');
-      toast.success('Teklif oluşturuldu!');
+      toast.success('Teklif başarıyla oluşturuldu!');
+      navigate('/employee/quotes');
     } catch (error) {
       console.error('Error creating quote:', error);
       toast.error('Teklif oluşturulurken hata oluştu.');
@@ -257,7 +326,7 @@ export default function NewQuote() {
       )}
 
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-800">Yeni Teklif İsteği</h1>
+        <h1 className="text-2xl font-bold text-gray-800">Yeni Teklif İsteği (Personel)</h1>
         <p className="text-gray-500 flex items-center">
             Araç ve müşteri bilgilerini girerek teklif isteği oluşturun.
             <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
@@ -305,13 +374,24 @@ export default function NewQuote() {
                         )}
                         <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
                     </div>
-                    <button
-                        type="button"
-                        onClick={handlePaste}
-                        className="mt-2 w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium flex items-center justify-center transition-colors"
-                    >
-                        <Clipboard className="w-4 h-4 mr-2" /> Pano'dan Yapıştır
-                    </button>
+                    
+                    <div className="flex gap-2 mt-2">
+                        <button
+                            type="button"
+                            onClick={handlePaste}
+                            className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium flex items-center justify-center transition-colors"
+                        >
+                            <Clipboard className="w-4 h-4 mr-2" /> Panodan
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleCopyQrString}
+                            className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium flex items-center justify-center transition-colors"
+                            title="BELGE-PLAKA-TC Kopyala"
+                        >
+                            <QrCode className="w-4 h-4 mr-2" /> Kare Kod
+                        </button>
+                    </div>
                 </div>
 
                 {/* 2. Form Alanları */}

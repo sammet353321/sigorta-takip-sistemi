@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { User, Trash2, Plus, X, UserPlus, Check } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
+import { toast } from 'react-hot-toast';
 
 // Temporary client for creating users without logging out admin
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -58,9 +59,10 @@ export default function UsersPage() {
       // But for now keeping it simple.
       
       setUsers(users.filter(u => u.id !== userId));
+      toast.success('Kullanıcı silindi.');
     } catch (error) {
       console.error('Error deleting user:', error);
-      alert('Kullanıcı silinirken hata oluştu.');
+      toast.error('Kullanıcı silinirken hata oluştu.');
     }
   };
 
@@ -112,7 +114,7 @@ export default function UsersPage() {
                 .eq('id', authData.user.id);
         }
 
-        alert('Kullanıcı başarıyla oluşturuldu ve otomatik onaylandı!');
+        toast.success('Kullanıcı başarıyla oluşturuldu ve otomatik onaylandı!');
         setIsModalOpen(false);
         setNewUser({ email: '', password: '', name: '', role: 'sub_agent' });
         fetchUsers(); // Refresh list
@@ -120,7 +122,7 @@ export default function UsersPage() {
 
     } catch (error: any) {
       console.error('Error creating user:', error);
-      alert('Kullanıcı oluşturulurken hata: ' + error.message);
+      toast.error('Kullanıcı oluşturulurken hata: ' + error.message);
     } finally {
       setCreating(false);
     }

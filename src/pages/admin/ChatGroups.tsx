@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Plus, Trash2, Users, UserPlus, Shield, X, Save } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 interface ChatGroup {
     id: string;
@@ -61,19 +62,23 @@ export default function ChatGroupsManagement() {
         if (!newGroupName.trim()) return;
 
         try {
+            const { data: { user } } = await supabase.auth.getUser();
+
             // Mark as 'creating' so Backend picks it up
             const { error } = await supabase.from('chat_groups').insert([{ 
                 name: newGroupName,
                 is_whatsapp_group: true, // It is intended to be a WA group
-                status: 'creating' // Trigger backend listener
+                status: 'creating', // Trigger backend listener
+                created_by: user?.id // Identify who created the group
             }]);
             
             if (error) throw error;
             setNewGroupName('');
             fetchGroups();
+            toast.success('Grup oluşturma isteği gönderildi.');
         } catch (error) {
             console.error('Error adding group:', error);
-            alert('Grup eklenirken hata oluştu.');
+            toast.error('Grup eklenirken hata oluştu.');
         }
     }
 
@@ -375,9 +380,10 @@ function GroupPermissions({ group, onUpdate }: { group: ChatGroup; onUpdate: () 
             if (error) throw error;
             // Alert removed as per request
             if (onUpdate) onUpdate(); // Refresh parent to get updated group data
+            toast.success('Grup ataması güncellendi.');
         } catch (error) {
             console.error('Error updating group assignment:', error);
-            alert('Hata oluştu.');
+            toast.error('Hata oluştu.');
         }
     }
 

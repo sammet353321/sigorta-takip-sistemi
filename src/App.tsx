@@ -11,6 +11,7 @@ import ManagementPage from "@/pages/admin/Management";
 import UsersPage from "@/pages/admin/Users";
 import EmployeeDashboard from "@/pages/employee/Dashboard";
 import EmployeeQuoteDetail from "@/pages/employee/QuoteDetail";
+import EmployeeNewQuote from "@/pages/employee/NewQuote";
 import EmployeeQuotesPage from "@/pages/employee/Quotes";
 import EmployeePoliciesPage from "@/pages/employee/Policies";
 import EmployeePolicyDetail from "@/pages/employee/PolicyDetail";
@@ -21,10 +22,13 @@ import NewQuote from "@/pages/sub-agent/NewQuote";
 import SubAgentQuoteDetail from "@/pages/sub-agent/QuoteDetail";
 import Unauthorized from "@/pages/Unauthorized";
 
+import { Toaster } from 'react-hot-toast';
+
 export default function App() {
   return (
     <AuthProvider>
       <NotificationProvider>
+        <Toaster position="top-right" />
         <Router>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -50,6 +54,7 @@ export default function App() {
                   <Route path="/employee/messages" element={<WhatsAppMessages />} />
                   <Route path="/employee/whatsapp-connection" element={<WhatsAppConnection />} />
                   <Route path="/employee/quotes" element={<EmployeeQuotesPage />} />
+                  <Route path="/employee/quotes/new" element={<EmployeeNewQuote />} />
                   <Route path="/employee/quotes/:id" element={<EmployeeQuoteDetail />} />
                   <Route path="/employee/policies" element={<EmployeePoliciesPage />} />
                   <Route path="/employee/policies/:id" element={<EmployeePolicyDetail />} />

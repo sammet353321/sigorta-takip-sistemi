@@ -11,6 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { analyzeLicenseWithGemini, analyzePolicyWithGemini } from '@/lib/gemini';
+import { toast } from 'react-hot-toast';
 
 export default function EmployeeQuoteDetail() {
   const { id } = useParams();
@@ -52,13 +53,35 @@ export default function EmployeeQuoteDetail() {
   const [netPrim, setNetPrim] = useState('');
   const [komisyon, setKomisyon] = useState('');
   const [policyKartBilgisi, setPolicyKartBilgisi] = useState(''); // New State
-  
-  // Auto OCR Ref
-  const autoScanTriggered = useRef(false);
+    const [policyNotes, setPolicyNotes] = useState(''); // New State for Policy Notes
 
-  // Image Viewer State
-  const [zoom, setZoom] = useState(1);
-  const [rotation, setRotation] = useState(0);
+    // Auto OCR Ref
+    const autoScanTriggered = useRef(false);
+
+    // Image Viewer State
+    const [zoom, setZoom] = useState(1);
+    const [rotation, setRotation] = useState(0);
+
+    // Date Parser Helper
+    const parseDateToISO = (dateStr: string) => {
+        if (!dateStr) return '';
+        // Handle DD.MM.YYYY or DD/MM/YYYY
+        const parts = dateStr.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+        if (parts) {
+            return `${parts[3]}-${parts[2].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+        }
+        return dateStr;
+    };
+
+    // Commission Calculator
+    const calcCommission = (rate: number) => {
+        const net = parseFloat(netPrim);
+        if (!isNaN(net)) {
+            setKomisyon((net * rate).toFixed(2));
+        } else {
+            toast.error('Lütfen önce Net Prim giriniz.');
+        }
+    };
 
   useEffect(() => {
     if (id) fetchData();
@@ -154,6 +177,11 @@ export default function EmployeeQuoteDetail() {
               if (result.belge_no) setBelgeNo(result.belge_no.toUpperCase());
               if (result.sasi_no) setSasiNo(result.sasi_no.toUpperCase());
               
+              // Handle Birth Date
+              if (result.dogum_tarihi) {
+                  setDogumTarihi(parseDateToISO(result.dogum_tarihi));
+              }
+
               if (result.arac_cinsi) {
                   // Clean Vehicle Type: Take first word or known types
                   let rawType = result.arac_cinsi.toUpperCase();
@@ -166,14 +194,14 @@ export default function EmployeeQuoteDetail() {
                   setAracCinsi(cleanType);
               }
               
-              if (!silent) alert('Tarama tamamlandı (Gemini 2.0).');
+              if (!silent) toast.success('Tarama tamamlandı (Gemini 2.0).');
           } else {
-              if (!silent) alert('Metin okunamadı.');
+              if (!silent) toast.error('Metin okunamadı.');
           }
 
       } catch (err: any) {
           console.error('OCR Error:', err);
-          if (!silent) alert('Tarama başarısız oldu: ' + err.message);
+          if (!silent) toast.error('Tarama başarısız oldu: ' + err.message);
       } finally {
           setOcrScanning(false);
       }
@@ -217,12 +245,12 @@ export default function EmployeeQuoteDetail() {
         }
         
         if (!imageFound) {
-            alert('Panoda uygun formatta resim bulunamadı. \n\nİpucu: Bir resim dosyasını kopyalamak yerine, resmi açıp "Resmi Kopyala" diyerek deneyin veya ekran alıntısı (Screenshot) kullanın.');
+            toast.error('Panoda uygun formatta resim bulunamadı. \n\nİpucu: Bir resim dosyasını kopyalamak yerine, resmi açıp "Resmi Kopyala" diyerek deneyin veya ekran alıntısı (Screenshot) kullanın.');
         }
 
     } catch (err) {
         console.error('Paste failed:', err);
-        alert('Panoya erişilemedi. Lütfen tarayıcı izinlerini kontrol edin veya "Ctrl+V" kısayolunu deneyin.');
+        toast.error('Panoya erişilemedi. Lütfen tarayıcı izinlerini kontrol edin veya "Ctrl+V" kısayolunu deneyin.');
     }
   };
 
@@ -253,7 +281,7 @@ export default function EmployeeQuoteDetail() {
         
     } catch (error: any) {
         console.error('Upload error:', error);
-        alert('Dosya yüklenirken hata oluştu: ' + error.message);
+        toast.error('Dosya yüklenirken hata oluştu: ' + error.message);
     } finally {
         setSaving(false);
     }
@@ -268,7 +296,7 @@ export default function EmployeeQuoteDetail() {
     try {
         // Validation: TC entered -> Birth Date required
         if (tcVkn && tcVkn.length === 11 && !dogumTarihi) {
-            alert('TC Kimlik No girildiyse Doğum Tarihi zorunludur!');
+            toast.error('TC Kimlik No girildiyse Doğum Tarihi zorunludur!');
             setSaving(false);
             return;
         }
@@ -431,8 +459,8 @@ export default function EmployeeQuoteDetail() {
               brut_prim: parseFloat(brutPrim) || 0,
               net_prim: parseFloat(netPrim) || 0,
               komisyon: parseFloat(komisyon) || 0,
-              ek_bilgiler: offerDetails, // Carry over details
-              kart_bilgisi: policyKartBilgisi || quote?.kart_bilgisi // Use manual input if present, else fallback to quote image
+              ek_bilgiler: (offerDetails || '') + (policyNotes ? '\n\nNOTLAR: ' + policyNotes : ''), // Append notes
+              kart_bilgisi: policyKartBilgisi || '' // Force string input, no fallback to image if empty
           });
 
           if (policyError) throw policyError;
@@ -445,12 +473,12 @@ export default function EmployeeQuoteDetail() {
 
           if (quoteError) throw quoteError;
 
-          alert('Poliçe başarıyla oluşturuldu!');
+          toast.success('Poliçe başarıyla oluşturuldu!');
           navigate('/employee/policies');
 
       } catch (error: any) {
           console.error('Policy Creation Error:', error);
-          alert('İşlem başarısız: ' + error.message);
+          toast.error('İşlem başarısız: ' + error.message);
       } finally {
           setSaving(false);
       }
@@ -486,7 +514,7 @@ export default function EmployeeQuoteDetail() {
             <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                 <h3 className="font-bold text-gray-800 flex items-center">
                     <FileText size={18} className="mr-2 text-blue-600" />
-                    Ruhsat / Belge
+                    Fiyat Listesi / Belge
                 </h3>
                 <div className="flex space-x-2">
                     <button 
@@ -600,7 +628,13 @@ export default function EmployeeQuoteDetail() {
                                 <input type="number" value={netPrim} onChange={(e) => setNetPrim(e.target.value)} className="w-full border border-gray-300 rounded px-2 py-1.5 text-right font-mono" placeholder="0.00" />
                             </div>
                             <div>
-                                <label className="block text-xs text-gray-500 mb-1">Komisyon</label>
+                                <label className="block text-xs text-gray-500 mb-1 flex justify-between">
+                                    Komisyon
+                                    <div className="flex gap-1">
+                                        <button onClick={() => calcCommission(0.10)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px] px-1 rounded font-bold" title="%10">T</button>
+                                        <button onClick={() => calcCommission(0.15)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px] px-1 rounded font-bold" title="%15">K</button>
+                                    </div>
+                                </label>
                                 <input type="number" value={komisyon} onChange={(e) => setKomisyon(e.target.value)} className="w-full border border-gray-300 rounded px-2 py-1.5 text-right font-mono" placeholder="0.00" />
                             </div>
                         </div>
@@ -614,6 +648,18 @@ export default function EmployeeQuoteDetail() {
                                 onChange={(e) => setPolicyKartBilgisi(e.target.value)} 
                                 className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" 
                                 placeholder="Ödeme linki veya not..." 
+                            />
+                        </div>
+
+                        {/* 6. Policy Notes */}
+                        <div>
+                            <label className="block text-xs text-gray-500 mb-1">Not (Ek Bilgiler)</label>
+                            <textarea
+                                value={policyNotes}
+                                onChange={(e) => setPolicyNotes(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                                placeholder="Poliçe ile ilgili notlar..."
+                                rows={2}
                             />
                         </div>
                     </div>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { QrCode, Smartphone, Wifi, WifiOff, RefreshCw, LogOut } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 export default function WhatsAppConnection() {
     const { user } = useAuth();
@@ -115,7 +116,7 @@ export default function WhatsAppConnection() {
             // Backend will pick up the 'scanning' status change
         } catch (error: any) {
             console.error('Error starting connection:', error);
-            // alert('Bağlantı başlatılamadı: ' + error.message);
+            toast.error('Bağlantı başlatılamadı: ' + error.message);
         } finally {
             setLoading(false);
         }

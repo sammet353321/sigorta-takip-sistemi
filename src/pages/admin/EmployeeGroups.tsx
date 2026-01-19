@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Plus, Trash2, Users, UserPlus, X, Briefcase } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 interface EmployeeGroup {
     id: string;
@@ -183,7 +184,7 @@ function GroupMembersModal({ group, onClose }: { group: EmployeeGroup; onClose: 
             }
         } catch (error) {
             console.error('Error toggling member:', error);
-            alert('İşlem sırasında hata oluştu.');
+            toast.error('İşlem sırasında hata oluştu.');
         }
     }
 

@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { X, Upload, Check, Loader2, Sparkles, AlertCircle, Plus, Trash2, Camera, Clipboard } from 'lucide-react';
 import { analyzeLicenseWithGemini } from '@/lib/gemini';
 import { useAuth } from '@/context/AuthContext';
+import { toast } from 'react-hot-toast';
 
 interface QuickQuotePanelProps {
     isOpen: boolean;
@@ -137,7 +138,7 @@ export default function QuickQuotePanel({ isOpen, onClose }: QuickQuotePanelProp
                 }
             }
         } catch (e) {
-            alert('Pano erişimi başarısız. Ctrl+V deneyin.');
+            toast.error('Pano erişimi başarısız. Ctrl+V deneyin.');
         }
     };
 
@@ -174,7 +175,7 @@ export default function QuickQuotePanel({ isOpen, onClose }: QuickQuotePanelProp
 
         } catch (error) {
             console.error(error);
-            alert('Dosya yüklenemedi.');
+            toast.error('Dosya yüklenemedi.');
         } finally {
             setLoading(false);
         }
@@ -213,7 +214,7 @@ export default function QuickQuotePanel({ isOpen, onClose }: QuickQuotePanelProp
 
     const handleComplete = async () => {
         if (!selectedTali) {
-            alert('Lütfen bir Tali/Müşteri seçin.');
+            toast.error('Lütfen bir Tali/Müşteri seçin.');
             return;
         }
 
@@ -292,12 +293,12 @@ export default function QuickQuotePanel({ isOpen, onClose }: QuickQuotePanelProp
                 });
             }
 
-            alert('Teklif oluşturuldu ve gönderildi!');
+            toast.success('Teklif oluşturuldu ve gönderildi!');
             onClose();
 
         } catch (e: any) {
             console.error(e);
-            alert('Hata: ' + e.message);
+            toast.error('Hata: ' + e.message);
         } finally {
             setLoading(false);
         }

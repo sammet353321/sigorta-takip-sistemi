@@ -189,8 +189,12 @@ export default function EmployeeQuotesPage() {
                 filteredQuotes.map((quote) => (
                   <tr 
                     key={quote.id} 
-                    className="hover:bg-blue-50 transition-colors cursor-pointer group whitespace-nowrap"
-                    onClick={() => navigate(`/employee/quotes/${quote.id}`)}
+                    className={`transition-colors group whitespace-nowrap ${quote.durum === 'policelesti' ? 'bg-gray-50 cursor-default opacity-75' : 'hover:bg-blue-50 cursor-pointer'}`}
+                    onClick={() => {
+                        if (quote.durum !== 'policelesti') {
+                            navigate(`/employee/quotes/${quote.id}`);
+                        }
+                    }}
                   >
                     <td className="px-4 py-3 font-bold text-gray-900">{quote.ad_soyad || '-'}</td>
                     <td className="px-4 py-3 text-gray-600">{quote.dogum_tarihi ? format(new Date(quote.dogum_tarihi), 'd.MM.yyyy') : '-'}</td>

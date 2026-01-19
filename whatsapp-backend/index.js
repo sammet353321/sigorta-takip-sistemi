@@ -40,35 +40,49 @@ const groupCreateChannel = supabase
             console.log('Group creation request:', payload.new);
             const group = payload.new;
             
-            // Try to create group using the first available admin client
+            // Try to create group using the SPECIFIC admin client who requested it
             let created = false;
-            
-            if (clients.size === 0) {
-                console.error('No active WhatsApp clients connected. Cannot create group.');
-                // Don't mark as failed immediately, maybe wait?
-                // For now, let's mark failed so user knows.
+            let targetClient = null;
+
+            if (group.created_by && clients.has(group.created_by)) {
+                // If we know who created it, use their client
+                console.log(`Using specific client for creator: ${group.created_by}`);
+                targetClient = clients.get(group.created_by);
+            } else {
+                // Fallback: Use first available admin client (old behavior)
+                console.log('Creator client not found or not specified, falling back to any admin.');
+                if (clients.size === 0) {
+                    console.error('No active WhatsApp clients connected. Cannot create group.');
+                }
+                for (const [userId, client] of clients.entries()) {
+                    if (client.info) {
+                        targetClient = client;
+                        break;
+                    }
+                }
             }
 
-            for (const [userId, client] of clients.entries()) {
-                if (!client.info) {
-                     console.log(`Client for user ${userId} is not ready yet.`);
-                     continue;
-                }
-
+            if (targetClient && targetClient.info) {
                 try {
-                    // Note: WhatsApp requires at least 1 participant to create a group.
-                    // Since we don't have a picker yet, we try to create with an empty list.
-                    // If this fails, we might need to add a dummy number or warn user.
-                    // Some libraries/versions allow empty list (just creator).
-                    
-                    console.log(`Creating group "${group.name}" via user ${userId}...`);
+                    console.log(`Creating group "${group.name}"...`);
                     
                     // Attempt create with empty participants
-                    const result = await client.createGroup(group.name, []);
+                    const result = await targetClient.createGroup(group.name, []);
                     
                     if (result && result.gid) {
                         console.log('Group created on WhatsApp:', result);
                         
+                        // Fix Permissions: Allow everyone to send messages
+                        try {
+                            // Fetch the newly created chat object to update permissions
+                            const chat = await targetClient.getChatById(result.gid._serialized);
+                            await chat.setMessagesAdminsOnly(false); // All participants can send messages
+                            // await chat.setInfoAdminsOnly(true); // Only admins can change group info (optional)
+                            console.log('Group permissions updated: Everyone can send messages.');
+                        } catch (permErr) {
+                            console.error('Error setting group permissions:', permErr);
+                        }
+
                         // Update DB with real JID and status
                         await supabase
                             .from('chat_groups')
@@ -80,15 +94,16 @@ const groupCreateChannel = supabase
                             .eq('id', group.id);
                         
                         created = true;
-                        break; // Stop after successful creation
                     }
                 } catch (err) {
-                    console.error(`Error creating group via ${userId}:`, err);
+                    console.error(`Error creating group:`, err);
                 }
+            } else {
+                 console.error('No suitable client found to create group.');
             }
 
             if (!created) {
-                console.error('Failed to create group on WhatsApp (no valid client or API error).');
+                console.error('Failed to create group on WhatsApp.');
                 // Mark as failed in DB
                 await supabase
                     .from('chat_groups')

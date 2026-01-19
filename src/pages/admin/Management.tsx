@@ -4,6 +4,7 @@ import { Building2, Plus, Trash2, X, Settings } from 'lucide-react';
 import UsersPage from './Users';
 import ChatGroupsManagement from './ChatGroups';
 import EmployeeGroupsManagement from './EmployeeGroups';
+import { toast } from 'react-hot-toast';
 
 interface Company {
     id: string;
@@ -184,9 +185,10 @@ function CompanyManagement() {
             const { error } = await supabase.from('companies').delete().eq('id', id);
             if (error) throw error;
             setCompanies(companies.filter(c => c.id !== id));
+            toast.success('Şirket silindi.');
         } catch (error) {
             console.error('Error deleting company:', error);
-            alert('Şirket silinirken hata oluştu.');
+            toast.error('Şirket silinirken hata oluştu.');
         }
     }
 
