@@ -586,6 +586,18 @@ async function initializeClient(userId) {
                  return; 
             }
 
+            // CHECK DUPLICATE: Prevent processing the same message twice
+            const { data: existingMsg } = await supabase
+                .from('messages')
+                .select('id')
+                .eq('wa_message_id', msg.id.id)
+                .single();
+
+            if (existingMsg) {
+                 // console.log('Duplicate message skipped:', msg.id.id);
+                 return;
+            }
+
             // Handle Media
             let mediaUrl = null;
             let messageType = 'text';
@@ -610,6 +622,7 @@ async function initializeClient(userId) {
                 type: messageType, 
                 content: msg.body,
                 media_url: mediaUrl,
+                wa_message_id: msg.id.id, // Store WA ID for duplicate check
                 created_at: new Date(msg.timestamp * 1000).toISOString(),
             });
             

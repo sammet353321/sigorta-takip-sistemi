@@ -60,6 +60,10 @@ export default function WhatsAppMessages() {
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+    // Quote Modal State
+    const [quoteModal, setQuoteModal] = useState<{ isOpen: boolean; imgUrl: string | null; phone: string | null }>({ isOpen: false, imgUrl: null, phone: null });
+    const [ocrProcessing, setOcrProcessing] = useState(false);
+
     // WhatsApp Connection State
     const [isWhatsAppConnected, setIsWhatsAppConnected] = useState<boolean | null>(null);
     const [myPhone, setMyPhone] = useState<string | null>(null);
@@ -666,11 +670,11 @@ export default function WhatsAppMessages() {
                                             ) : null}
                                             {msg.direction === 'inbound' && (
                                                 <button 
-                                                    onClick={() => createQuoteFromImage(msg.media_url!, msg.sender_phone)}
+                                                    onClick={() => setQuoteModal({ isOpen: true, imgUrl: msg.media_url!, phone: msg.sender_phone })}
                                                     className="mt-2 w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded flex items-center justify-center transition-colors"
                                                 >
                                                     <FileText size={14} className="mr-1" />
-                                                    Teklife Dönüştür
+                                                    Teklif Oluştur
                                                 </button>
                                             )}
                                         </div>
@@ -716,6 +720,69 @@ export default function WhatsAppMessages() {
                 {toastMessage && (
                     <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg z-50 transition-opacity duration-300 animate-in fade-in slide-in-from-bottom-2">
                         {toastMessage}
+                    </div>
+                )}
+
+                {/* Quote Creation Modal */}
+                {quoteModal.isOpen && (
+                    <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                            {/* Header */}
+                            <div className="bg-white px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                                <h3 className="text-lg font-bold text-gray-900">Hızlı Teklif Oluştur</h3>
+                                <button 
+                                    onClick={() => setQuoteModal({ isOpen: false, imgUrl: null, phone: null })}
+                                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                                >
+                                    <X size={24} />
+                                </button>
+                            </div>
+                            
+                            {/* Body */}
+                            <div className="p-6">
+                                <div className="grid grid-cols-2 gap-4">
+                                    {['TRAFİK', 'KASKO', 'DASK', 'KONUT', 'İŞYERİ', 'TSS'].map((type) => (
+                                        <button
+                                            key={type}
+                                            onClick={() => {
+                                                navigate('/employee/quotes/new', { 
+                                                    state: { 
+                                                        source: 'whatsapp',
+                                                        imageUrl: quoteModal.imgUrl,
+                                                        customerPhone: quoteModal.phone,
+                                                        quoteType: type,
+                                                        autoScan: true 
+                                                    } 
+                                                });
+                                                setQuoteModal({ isOpen: false, imgUrl: null, phone: null });
+                                            }}
+                                            className="py-4 px-2 border border-gray-200 rounded-lg text-gray-800 font-bold hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all text-center text-sm shadow-sm"
+                                        >
+                                            {type}
+                                        </button>
+                                    ))}
+                                    
+                                    {/* ÖSS Single Row */}
+                                    <button
+                                        onClick={() => {
+                                             navigate('/employee/quotes/new', { 
+                                                state: { 
+                                                    source: 'whatsapp',
+                                                    imageUrl: quoteModal.imgUrl,
+                                                    customerPhone: quoteModal.phone,
+                                                    quoteType: 'ÖSS',
+                                                    autoScan: true 
+                                                } 
+                                            });
+                                            setQuoteModal({ isOpen: false, imgUrl: null, phone: null });
+                                        }}
+                                        className="py-4 px-2 border border-gray-200 rounded-lg text-gray-800 font-bold hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all text-center text-sm shadow-sm"
+                                    >
+                                        ÖSS
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
 
