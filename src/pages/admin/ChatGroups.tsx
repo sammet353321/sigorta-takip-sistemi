@@ -61,11 +61,11 @@ export default function ChatGroupsManagement() {
         if (!newGroupName.trim()) return;
 
         try {
-            // Just insert as a local group (or waiting for sync)
+            // Mark as 'creating' so Backend picks it up
             const { error } = await supabase.from('chat_groups').insert([{ 
                 name: newGroupName,
-                is_whatsapp_group: false, 
-                status: 'active'
+                is_whatsapp_group: true, // It is intended to be a WA group
+                status: 'creating' // Trigger backend listener
             }]);
             
             if (error) throw error;
