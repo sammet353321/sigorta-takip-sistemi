@@ -382,7 +382,13 @@ async function initializeClient(userId) {
                 '--disable-accelerated-2d-canvas',
                 '--no-first-run',
                 '--no-zygote',
-                '--disable-gpu'
+                '--disable-gpu',
+                '--disable-features=IsolateOrigins,site-per-process', // Medya ve iFrame hataları için
+                '--aggressive-cache-discard',
+                '--disable-cache',
+                '--disable-application-cache',
+                '--disable-offline-load-stale-cache',
+                '--disk-cache-size=0'
             ],
             timeout: 0 // Sonsuz timeout, Render yavas olabilir
         }
