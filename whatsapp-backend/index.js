@@ -345,7 +345,13 @@ async function initializeClient(userId) {
     if (clients.has(userId)) {
         console.log(`Destroying existing memory client for ${userId} before re-init`);
         const oldClient = clients.get(userId);
-        try { await oldClient.destroy(); } catch(e) {}
+        try { 
+            await oldClient.destroy();
+            // Wait a bit for puppeteer process to fully die
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        } catch(e) {
+            console.error('Error destroying old client:', e.message);
+        }
         clients.delete(userId);
     }
     
@@ -681,3 +687,13 @@ async function initializeClient(userId) {
         console.error(`Initialization failed for ${userId}:`, err);
     }
 }
+
+// Catch unhandled errors to prevent server crash
+process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION:', err.message);
+    // Do not exit, keep server running if possible
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED REJECTION:', reason);
+});
