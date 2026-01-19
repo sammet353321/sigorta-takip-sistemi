@@ -170,6 +170,54 @@ const groupUpdateChannel = supabase
     )
     .subscribe();
 
+// Listen for Group Member Additions
+const groupMemberChannel = supabase
+    .channel('whatsapp-group-members')
+    .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_group_members' },
+        async (payload) => {
+            console.log('Member addition request:', payload.new);
+            const member = payload.new;
+            
+            // Get group details to find JID
+            const { data: groupData } = await supabase
+                .from('chat_groups')
+                .select('group_jid')
+                .eq('id', member.group_id)
+                .single();
+
+            if (!groupData || !groupData.group_jid) {
+                 console.log('Skipping member add on WA: No JID');
+                 return;
+            }
+
+            const phoneToAdd = member.phone + '@c.us'; // Format: 90555...@c.us
+
+            // Find an admin client to perform the add
+            let added = false;
+            for (const [userId, client] of clients.entries()) {
+                if (!client.info) continue;
+
+                try {
+                    const chat = await client.getChatById(groupData.group_jid);
+                    if (chat && chat.isGroup) {
+                        console.log(`Adding ${phoneToAdd} to group ${groupData.group_jid} via ${userId}`);
+                        await chat.addParticipants([phoneToAdd]);
+                        console.log('Participant added successfully.');
+                        added = true;
+                        break;
+                    }
+                } catch (err) {
+                    console.error(`Error adding participant via ${userId}:`, err);
+                }
+            }
+            
+            if (!added) console.error('Failed to add participant on WhatsApp.');
+        }
+    )
+    .subscribe();
+
 
 // Listen for Outbound Messages (status = 'pending', direction = 'outbound')
 const messageOutboundChannel = supabase
