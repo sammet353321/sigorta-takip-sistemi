@@ -330,12 +330,10 @@ async function checkExistingSessions() {
     const { data } = await supabase.from('whatsapp_sessions').select('*').in('status', ['scanning', 'connected']);
     if (data) {
         for (const session of data) {
-            if (session.status === 'scanning' && !clients.has(session.user_id)) {
+            if (!clients.has(session.user_id)) {
+                console.log(`Restoring/Initializing session for ${session.user_id} (${session.status})`);
                 initializeClient(session.user_id);
             }
-            // For 'connected', we would need to restore session (LocalAuth)
-            // Implementation of session restoration is complex for multi-tenant in one script.
-            // For this demo, we focus on NEW connections.
         }
     }
 }

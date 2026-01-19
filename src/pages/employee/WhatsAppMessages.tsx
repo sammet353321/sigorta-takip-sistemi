@@ -372,6 +372,7 @@ export default function WhatsAppMessages() {
             // Scroll will happen automatically via useLayoutEffect
 
             const { error } = await supabase.from('messages').insert({
+                group_id: selectedGroupId,
                 sender_phone: selectedTargetMember.phone,
                 direction: 'outbound',
                 type: 'text',
