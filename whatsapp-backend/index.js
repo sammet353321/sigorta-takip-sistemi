@@ -343,6 +343,13 @@ checkExistingSessions();
 
 async function initializeClient(userId) {
     // 0. Clean up any existing session if starting fresh scanning
+    if (clients.has(userId)) {
+        console.log(`Destroying existing memory client for ${userId} before re-init`);
+        const oldClient = clients.get(userId);
+        try { await oldClient.destroy(); } catch(e) {}
+        clients.delete(userId);
+    }
+    
     // If status is scanning, it means we want a NEW QR, so delete old session.
     // However, if we are restarting server and status is 'connected', we keep it.
     
@@ -533,26 +540,58 @@ async function initializeClient(userId) {
 
     client.on('message', async (msg) => {
         // Handle incoming messages
-        // Here we would insert into 'messages' table
         try {
             // Only handle inbound
             if (msg.fromMe) return;
 
             const senderPhone = msg.from.replace('@c.us', '');
+            const chatJid = msg.from; // This is the group JID if it's a group message
             
-            // Check if this message belongs to a known group or individual chat logic
-            // For now, just insert raw message
+            // Find which group this message belongs to
+            // Note: msg.from is the sender JID. If it's a group, msg.from is group JID in some libraries,
+            // or msg.author is the sender and msg.from is group.
+            // In whatsapp-web.js: 
+            // - Group msg: msg.from = groupJid, msg.author = senderJid
+            // - Private msg: msg.from = senderJid, msg.author = undefined
             
+            let groupJid = msg.from;
+            let actualSender = senderPhone;
+
+            if (msg.author) {
+                // It's a group message
+                groupJid = msg.from;
+                actualSender = msg.author.replace('@c.us', '');
+            }
+
+            // Find group in DB
+            const { data: groupData } = await supabase
+                .from('chat_groups')
+                .select('id')
+                .eq('group_jid', groupJid)
+                .single();
+            
+            const groupId = groupData ? groupData.id : null;
+            
+            // If message is from a group we don't know, maybe we should ignore it or auto-create?
+            // For now, only save if we know the group (or if it's a DM and we want to support DMs later)
+            
+            // User requirement: Only care about groups.
+            if (!groupId) {
+                 // console.log('Message from unknown group/chat:', groupJid);
+                 return; 
+            }
+
             const { error } = await supabase.from('messages').insert({
-                sender_phone: senderPhone,
+                group_id: groupId, // CRITICAL FIX: Link message to group
+                sender_phone: actualSender,
                 direction: 'inbound',
-                type: msg.hasMedia ? 'image' : 'text', // Simplification
+                type: msg.hasMedia ? 'image' : 'text', 
                 content: msg.body,
                 created_at: new Date(msg.timestamp * 1000).toISOString(),
-                // group_id: ... logic to find group
             });
             
             if (error) console.error('Error saving message:', error);
+            else console.log(`Saved inbound message from ${actualSender} in group ${groupId}`);
             
         } catch (err) {
             console.error('Error handling incoming message:', err);
