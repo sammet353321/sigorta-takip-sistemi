@@ -37,6 +37,11 @@ export interface Teklif {
   notlar?: string;
   guncellenme_tarihi: string;
 
+  // Additional Fields for Compatibility
+  sasi_no?: string; // Mapped to sasi
+  tc?: string;      // Mapped to tc_vkn
+  ruhsat_seri_no?: string; // Mapped to belge_no
+
   // Joins
   ilgili_kisi?: { name: string }; // joined user
 }
@@ -69,6 +74,9 @@ export interface Police {
   pdf_url?: string;
   durum: PoliceDurumu;
   guncellenme_tarihi: string;
+
+  // Additional Fields for Compatibility
+  sasi_no?: string; // Mapped to sasi
 
   ilgili_kisi?: { name: string };
 }
