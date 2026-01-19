@@ -274,6 +274,7 @@ const messageOutboundChannel = supabase
                     }
                 } catch (err) {
                     // This client might not be in the group, try next
+                    console.error(`Failed to send via ${userId}:`, err.message);
                 }
             }
 
@@ -610,17 +611,31 @@ async function initializeClient(userId) {
         }
         clients.delete(userId);
 
-        // Clean up session directory
+        // Clean up session directory with delay and retry
         const sessionPath = path.join(__dirname, '.wwebjs_auth', `session-${userId}`);
-        if (fs.existsSync(sessionPath)) {
-            console.log(`Deleting session files for ${userId}...`);
-            try {
-                fs.rmSync(sessionPath, { recursive: true, force: true });
-                console.log(`Session files deleted for ${userId}`);
-            } catch (err) {
-                console.error(`Error deleting session files for ${userId}:`, err);
+        
+        setTimeout(() => {
+            if (fs.existsSync(sessionPath)) {
+                console.log(`Deleting session files for ${userId}...`);
+                try {
+                    fs.rmSync(sessionPath, { recursive: true, force: true });
+                    console.log(`Session files deleted for ${userId}`);
+                } catch (err) {
+                    console.error(`Error deleting session files for ${userId} (Attempt 1):`, err);
+                    // Retry once more after 2 seconds
+                    setTimeout(() => {
+                        try {
+                            if (fs.existsSync(sessionPath)) {
+                                fs.rmSync(sessionPath, { recursive: true, force: true });
+                                console.log(`Session files deleted for ${userId} (Attempt 2)`);
+                            }
+                        } catch (retryErr) {
+                             console.error(`Error deleting session files for ${userId} (Final Attempt):`, retryErr);
+                        }
+                    }, 2000);
+                }
             }
-        }
+        }, 3000); // Wait 3 seconds for Puppeteer to fully close locks
     });
 
     try {
