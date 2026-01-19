@@ -13,7 +13,7 @@ export default function WhatsAppConnection() {
         if (!user) return;
         fetchSession();
 
-        // Subscribe to changes
+        // 1. Subscribe to Realtime changes
         const channel = supabase
             .channel('whatsapp-session')
             .on('postgres_changes', { 
@@ -22,13 +22,24 @@ export default function WhatsAppConnection() {
                 table: 'whatsapp_sessions',
                 filter: `user_id=eq.${user.id}`
             }, (payload) => {
+                console.log('Realtime update received:', payload);
                 const newSession = payload.new as any;
                 setSession(newSession);
                 if (newSession?.qr_code) setQrCode(newSession.qr_code);
             })
-            .subscribe();
+            .subscribe((status) => {
+                console.log('Realtime subscription status:', status);
+            });
 
-        return () => { supabase.removeChannel(channel); };
+        // 2. Fallback: Polling every 3 seconds (in case Realtime fails)
+        const interval = setInterval(() => {
+            fetchSession();
+        }, 3000);
+
+        return () => { 
+            supabase.removeChannel(channel); 
+            clearInterval(interval);
+        };
     }, [user]);
 
     async function fetchSession() {
