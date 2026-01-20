@@ -428,7 +428,7 @@ export default function EmployeeQuoteDetail() {
 
   const handlePolicyFinalize = async () => {
       if (!policySirket || !policyAcente || !policyNo) {
-          alert('Lütfen Şirket, Acente ve Poliçe No alanlarını doldurun.');
+          toast.error('Lütfen Şirket, Acente ve Poliçe No alanlarını doldurun.');
           return;
       }
 

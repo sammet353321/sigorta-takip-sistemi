@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Plus, Trash2, Users, UserPlus, Shield, X, Save } from 'lucide-react';
+import { Plus, Trash2, Users, UserPlus, Shield, X, Save, RefreshCw } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 
 interface ChatGroup {
     id: string;
     name: string;
     member_count?: number;
     assigned_employee_group_id?: string;
-    is_whatsapp_group?: boolean; // Added
+    is_whatsapp_group?: boolean;
 }
 
 interface EmployeeGroup {
@@ -29,20 +30,50 @@ interface Employee {
 }
 
 export default function ChatGroupsManagement() {
+    const navigate = useNavigate();
     const [groups, setGroups] = useState<ChatGroup[]>([]);
     const [loading, setLoading] = useState(true);
     const [newGroupName, setNewGroupName] = useState('');
     const [selectedGroup, setSelectedGroup] = useState<ChatGroup | null>(null);
+    const [isWAConnected, setIsWAConnected] = useState(false);
+    const [checkingStatus, setCheckingStatus] = useState(true);
 
     useEffect(() => {
-        fetchGroups();
+        checkStatusAndFetch();
     }, []);
 
+    async function checkStatusAndFetch() {
+        setCheckingStatus(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        
+        // 1. Check WA Status
+        const { data } = await supabase
+            .from('whatsapp_sessions')
+            .select('status')
+            .eq('user_id', user.id)
+            .single();
+        
+        const connected = data?.status === 'connected';
+        setIsWAConnected(connected);
+
+        // 2. If connected, fetch groups
+        if (connected) {
+            await fetchGroups();
+        } else {
+            setGroups([]); // Clear groups if not connected
+            setLoading(false);
+        }
+        setCheckingStatus(false);
+    }
+
     async function fetchGroups() {
+        setLoading(true);
         try {
             const { data, error } = await supabase
                 .from('chat_groups')
-                .select('*, chat_group_members(count)');
+                .select('*, chat_group_members(count)')
+                .order('created_at', { ascending: false }); // Show newest first
             
             if (error) throw error;
             
@@ -90,10 +121,7 @@ export default function ChatGroupsManagement() {
         if (!groupToDelete) return;
 
         try {
-            // First delete members manually if cascade is not set
-            await supabase.from('chat_group_members').delete().eq('group_id', groupToDelete);
-            
-            // Mark as deleting to trigger backend
+            // 1. Mark as deleting FIRST to trigger backend immediately
             const { error } = await supabase
                 .from('chat_groups')
                 .update({ status: 'deleting' })
@@ -101,16 +129,18 @@ export default function ChatGroupsManagement() {
 
             if (error) throw error;
             
-            // Optimistically remove from UI or wait for real deletion
-            // Ideally backend deletes it, so we can re-fetch or filter out
-            
-            // For better UX, let's wait a bit then fetch, or filter locally
+            // 2. Optimistically remove from UI
             setGroups(prev => prev.filter(g => g.id !== groupToDelete));
             if (selectedGroup?.id === groupToDelete) setSelectedGroup(null);
             
+            toast.success('Grup silme işlemi başlatıldı.');
+
+            // 3. Optional: Clean up members if backend doesn't handle cascade
+            // But let's leave it to backend/database constraints
+            
         } catch (error) {
             console.error('Error deleting group:', error);
-            alert('Silme işlemi başarısız. Yetkinizi kontrol edin.');
+            toast.error('Silme işlemi başarısız. Yetkinizi kontrol edin.');
         } finally {
             setIsDeleteModalOpen(false);
             setGroupToDelete(null);
@@ -156,58 +186,91 @@ export default function ChatGroupsManagement() {
 
             <div className="flex justify-between items-center">
                 <h3 className="text-lg font-bold text-gray-800">Sohbet Grupları</h3>
-                <div className="text-sm text-gray-500">
-                   WhatsApp'tan otomatik senkronize edilir.
+                <div className="flex items-center gap-2">
+                    {isWAConnected && (
+                        <button 
+                            onClick={fetchGroups} 
+                            disabled={loading}
+                            className="text-gray-500 hover:text-blue-600 p-1 rounded-full hover:bg-gray-100" 
+                            title="Yenile"
+                        >
+                            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+                        </button>
+                    )}
+                    <div className="text-sm text-gray-500">
+                        {checkingStatus ? 'Durum kontrol ediliyor...' : 
+                         isWAConnected ? 'WhatsApp Senkronize Edildi' : 'WhatsApp Bağlantısı Bekleniyor'}
+                    </div>
                 </div>
             </div>
 
-            <form onSubmit={handleAddGroup} className="flex gap-4">
-                <input 
-                    type="text" 
-                    placeholder="Manuel Grup Adı (Örn: Dahili Personel)" 
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={newGroupName}
-                    onChange={(e) => setNewGroupName(e.target.value)}
-                />
-                <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center">
-                    <Plus size={18} className="mr-2" /> Ekle
-                </button>
-            </form>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {groups.map(group => (
-                    <div 
-                        key={group.id} 
-                        onClick={() => setSelectedGroup(group)}
-                        className={`flex justify-between items-center p-4 border rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer bg-white group ${group.is_whatsapp_group ? 'border-green-200 bg-green-50/30' : 'border-gray-200'}`}
+            {checkingStatus ? (
+                <div className="text-center py-10 text-gray-400">Yükleniyor...</div>
+            ) : !isWAConnected ? (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center animate-in fade-in zoom-in duration-300">
+                    <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3 text-yellow-600">
+                        <Shield size={24} /> 
+                    </div>
+                    <h4 className="text-lg font-bold text-yellow-800 mb-2">WhatsApp Bağlantısı Yok</h4>
+                    <p className="text-gray-600 mb-4">Grup yönetimi yapabilmek için önce WhatsApp hesabınızı bağlamanız gerekmektedir.</p>
+                    <button 
+                        onClick={() => navigate('/admin/whatsapp-connection')}
+                        className="inline-block bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors"
                     >
-                        <div className="flex items-center space-x-3">
-                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${group.is_whatsapp_group ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-                                <Users size={20} />
-                            </div>
-                            <div>
-                                <span className="font-medium text-gray-800 block">{group.name}</span>
-                                <div className="flex items-center space-x-2">
-                                    <span className="text-xs text-gray-500">{group.member_count} Üye</span>
-                                    {group.is_whatsapp_group && <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded">WA</span>}
+                        WhatsApp Bağla
+                    </button>
+                </div>
+            ) : (
+                <>
+                <form onSubmit={handleAddGroup} className="flex gap-4">
+                    <input 
+                        type="text" 
+                        placeholder="Manuel Grup Adı (Örn: Dahili Personel)" 
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                    />
+                    <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center">
+                        <Plus size={18} className="mr-2" /> Ekle
+                    </button>
+                </form>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {groups.map(group => (
+                        <div 
+                            key={group.id} 
+                            onClick={() => setSelectedGroup(group)}
+                            className={`flex justify-between items-center p-4 border rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer bg-white group ${group.is_whatsapp_group ? 'border-green-200 bg-green-50/30' : 'border-gray-200'}`}
+                        >
+                            <div className="flex items-center space-x-3">
+                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${group.is_whatsapp_group ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
+                                    <Users size={20} />
+                                </div>
+                                <div>
+                                    <span className="font-medium text-gray-800 block">{group.name}</span>
+                                    <div className="flex items-center space-x-2">
+                                        <span className="text-xs text-gray-500">{group.member_count} Üye</span>
+                                        {group.is_whatsapp_group && <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded">WA</span>}
+                                    </div>
                                 </div>
                             </div>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); handleDeleteClick(group.id); }}
+                                className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-2"
+                            >
+                                <Trash2 size={18} />
+                            </button>
                         </div>
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); handleDeleteClick(group.id); }}
-                            className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-2"
-                        >
-                            <Trash2 size={18} />
-                        </button>
-                    </div>
-                ))}
-                {groups.length === 0 && (
-                    <div className="col-span-full text-center py-8 text-gray-500">
-                        Henüz grup oluşturulmamış veya senkronize edilmemiş. <br/>
-                        <span className="text-sm">"WhatsApp Bağla" menüsünden gruplarınızı içe aktarabilirsiniz.</span>
-                    </div>
-                )}
-            </div>
+                    ))}
+                    {groups.length === 0 && (
+                        <div className="col-span-full text-center py-8 text-gray-500">
+                            Henüz grup oluşturulmamış veya senkronize edilmemiş. <br/>
+                            <span className="text-sm">"WhatsApp Bağla" menüsünden gruplarınızı içe aktarabilirsiniz.</span>
+                        </div>
+                    )}
+                </div>
+                </>
+            )}
 
             {selectedGroup && (
                 <GroupDetailModal 
@@ -300,7 +363,7 @@ function GroupMembers({ group }: { group: ChatGroup }) {
             });
             
             if (error) {
-                if (error.code === '23505') alert('Bu numara zaten grupta ekli.');
+                if (error.code === '23505') toast.error('Bu numara zaten grupta ekli.');
                 else throw error;
             } else {
                 setNewPhone('');

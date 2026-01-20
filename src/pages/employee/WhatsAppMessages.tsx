@@ -383,7 +383,8 @@ export default function WhatsAppMessages() {
                 direction: 'outbound',
                 type: 'text',
                 content: tempMsg.content,
-                status: 'pending'
+                status: 'pending',
+                user_id: user?.id // Add user_id to insert
             });
 
             if (error) throw error;

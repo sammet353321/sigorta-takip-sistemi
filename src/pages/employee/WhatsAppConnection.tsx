@@ -1,152 +1,113 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { QrCode, Smartphone, Wifi, WifiOff, RefreshCw, LogOut } from 'lucide-react';
+import { QrCode, Smartphone, Wifi, WifiOff, RefreshCw, LogOut, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 export default function WhatsAppConnection() {
     const { user } = useAuth();
     const [session, setSession] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [qrCode, setQrCode] = useState<string | null>(null);
+    const [generating, setGenerating] = useState(false);
+    const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+    const pollInterval = useRef<NodeJS.Timeout | null>(null);
 
+    // Initial Load
     useEffect(() => {
-        if (!user) return;
-        fetchSession();
-
-        // 1. Subscribe to Realtime changes
-        const channel = supabase
-            .channel('whatsapp-session')
-            .on('postgres_changes', { 
-                event: '*', 
-                schema: 'public', 
-                table: 'whatsapp_sessions',
-                filter: `user_id=eq.${user.id}`
-            }, (payload) => {
-                console.log('Realtime update received:', payload);
-                const newSession = payload.new as any;
-                setSession(newSession);
-                if (newSession?.qr_code) setQrCode(newSession.qr_code);
-            })
-            .subscribe((status) => {
-                console.log('Realtime subscription status:', status);
-            });
-
-        // 2. Fallback: Polling every 3 seconds (in case Realtime fails)
-        const interval = setInterval(() => {
-            fetchSession();
-        }, 3000);
-
-        return () => { 
-            supabase.removeChannel(channel); 
-            clearInterval(interval);
-        };
+        if (user) fetchSession();
+        return () => stopPolling();
     }, [user]);
+
+    // Polling Logic: Only poll if status is 'scanning' or 'connected'
+    useEffect(() => {
+        stopPolling();
+        if (session?.status === 'scanning') {
+            // Poll fast for QR
+            pollInterval.current = setInterval(fetchSession, 1000);
+        } else if (session?.status === 'connected') {
+            // Poll slow for status check
+            pollInterval.current = setInterval(fetchSession, 5000);
+        }
+        return () => stopPolling();
+    }, [session?.status]);
+
+    function stopPolling() {
+        if (pollInterval.current) {
+            clearInterval(pollInterval.current);
+            pollInterval.current = null;
+        }
+    }
 
     async function fetchSession() {
         try {
-            const { data, error } = await supabase
+            const { data } = await supabase
                 .from('whatsapp_sessions')
                 .select('*')
                 .eq('user_id', user?.id)
                 .single();
             
             if (data) {
-                setSession(data);
-                if (data.qr_code) setQrCode(data.qr_code);
+                // Only update if status or QR changed to avoid re-renders
+                setSession(prev => {
+                    if (JSON.stringify(prev) !== JSON.stringify(data)) return data;
+                    return prev;
+                });
             }
+            setLoading(false);
         } catch (error) {
             console.error('Error fetching session:', error);
-        } finally {
-            setLoading(false);
         }
     }
 
-    async function startConnection() {
-        if (!user) return;
-        setLoading(true);
+    async function startNewSession() {
+        setConfirmDisconnect(false);
+        setGenerating(true);
         try {
-            // First check if there is an existing session and delete/update it
-            const { data: existingSession } = await supabase
+            // 1. Reset DB status to 'scanning' to trigger backend
+            const { data, error } = await supabase
                 .from('whatsapp_sessions')
-                .select('id')
-                .eq('user_id', user.id)
+                .upsert({
+                    user_id: user?.id,
+                    status: 'scanning',
+                    qr_code: null,
+                    phone_number: null,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'user_id' }) // Explicitly handle conflict on user_id
+                .select()
                 .single();
 
-            if (existingSession) {
-                // If exists, update it to 'scanning' and clear old data
-                const { error: updateError } = await supabase
-                    .from('whatsapp_sessions')
-                    .update({
-                        status: 'scanning',
-                        qr_code: null,
-                        phone_number: null,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('user_id', user.id);
-                
-                if (updateError) throw updateError;
-                
-                // Fetch the updated session to set state
-                const { data: updatedSession } = await supabase
-                    .from('whatsapp_sessions')
-                    .select('*')
-                    .eq('user_id', user.id)
-                    .single();
-                
-                setSession(updatedSession);
-
-            } else {
-                // If not exists, insert new
-                const { data, error } = await supabase
-                    .from('whatsapp_sessions')
-                    .insert({
-                        user_id: user.id,
-                        status: 'scanning',
-                        qr_code: null,
-                        updated_at: new Date().toISOString()
-                    })
-                    .select()
-                    .single();
-
-                if (error) throw error;
-                setSession(data);
-            }
-            
-            // Backend will pick up the 'scanning' status change
+            if (error) throw error;
+            setSession(data);
+            // toast.success('QR Kod isteği gönderildi...'); // Removed notification
         } catch (error: any) {
-            console.error('Error starting connection:', error);
-            toast.error('Bağlantı başlatılamadı: ' + error.message);
+            toast.error('Hata: ' + error.message);
         } finally {
-            setLoading(false);
+            setGenerating(false);
         }
     }
 
     async function disconnect() {
-        if (!user) return;
-        if (!confirm('WhatsApp bağlantısını kesmek istediğinize emin misiniz?')) return;
-
         try {
-            const { error } = await supabase
+            await supabase
                 .from('whatsapp_sessions')
                 .update({ 
                     status: 'disconnected', 
                     qr_code: null, 
-                    phone_number: null,
-                    updated_at: new Date().toISOString()
+                    phone_number: null 
                 })
-                .eq('user_id', user.id);
-
-            if (error) throw error;
-            setSession(prev => ({ ...prev, status: 'disconnected', qr_code: null, phone_number: null }));
+                .eq('user_id', user?.id);
+            
+            setSession(prev => ({ ...prev, status: 'disconnected', qr_code: null }));
+            toast.success('Bağlantı kesildi.');
         } catch (error) {
-            console.error('Error disconnecting:', error);
+            toast.error('Hata oluştu.');
         }
     }
 
-    if (loading && !session) return <div className="p-8 text-center">Yükleniyor...</div>;
+    if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin" /></div>;
 
     const status = session?.status || 'disconnected';
+    const qrCode = session?.qr_code;
 
     return (
         <div className="max-w-2xl mx-auto space-y-6">
@@ -155,99 +116,125 @@ export default function WhatsAppConnection() {
                 WhatsApp Bağlantısı
             </h1>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="p-6 text-center space-y-6">
-                    {status === 'disconnected' && (
-                        <div className="py-8">
-                            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-                                <WifiOff size={40} />
-                            </div>
-                            <h2 className="text-xl font-semibold text-gray-800 mb-2">Bağlantı Yok</h2>
-                            <p className="text-gray-500 mb-6 max-w-md mx-auto">
-                                Müşterilerinizle iletişim kurmak için kendi WhatsApp hesabınızı bağlayın. 
-                                "Bağlan" butonuna tıkladıktan sonra ekrana gelen QR kodu telefonunuzdan taratın.
-                            </p>
-                            <button 
-                                onClick={startConnection}
-                                className="bg-green-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200 flex items-center mx-auto gap-2"
-                            >
-                                <QrCode size={20} />
-                                QR Kod Oluştur
-                            </button>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden p-8 text-center">
+                
+                {/* STATE: DISCONNECTED */}
+                {status === 'disconnected' && (
+                    <div className="space-y-6">
+                        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto text-gray-400">
+                            <WifiOff size={40} />
                         </div>
-                    )}
+                        <h2 className="text-xl font-semibold">Bağlantı Yok</h2>
+                        <p className="text-gray-500">Botu aktif etmek için QR kod oluşturun.</p>
+                        
+                        <button 
+                            onClick={startNewSession} 
+                            disabled={generating}
+                            className="bg-green-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-green-700 transition-colors flex items-center mx-auto gap-2 disabled:opacity-50"
+                        >
+                            {generating ? <Loader2 className="animate-spin" /> : <QrCode size={20} />}
+                            {generating ? 'Başlatılıyor...' : 'QR Kod Oluştur'}
+                        </button>
+                    </div>
+                )}
 
-                    {status === 'scanning' && (
-                        <div className="py-8">
-                            <h2 className="text-xl font-semibold text-gray-800 mb-4">Telefonunuzdan Taratın</h2>
-                            
+                {/* STATE: SCANNING (QR) */}
+                {status === 'scanning' && (
+                    <div className="space-y-6">
+                        <h2 className="text-xl font-semibold animate-pulse">QR Kod Bekleniyor...</h2>
+                        
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 inline-block min-w-[300px] min-h-[300px] flex items-center justify-center bg-gray-50">
                             {qrCode ? (
-                                <div className="bg-white p-4 inline-block rounded-lg border-2 border-gray-100 shadow-inner mb-4">
-                                    {/* Display QR Code - Assuming Base64 or simple text. 
-                                        If text, we need a QR library. For now, assuming image src or placeholder.
-                                        If backend sends raw string, we need 'qrcode.react'.
-                                        For this demo, I'll assume backend sends a Data URL.
-                                    */}
-                                    {qrCode.startsWith('data:image') ? (
-                                        <img src={qrCode} alt="QR Code" className="w-64 h-64" />
-                                    ) : (
-                                        <div className="w-64 h-64 bg-gray-100 flex items-center justify-center text-xs text-gray-500 break-all p-2">
-                                            {/* Fallback if raw text */}
-                                            QR Kod Bekleniyor... <br/> (Backend entegrasyonu gerekli)
-                                        </div>
-                                    )}
-                                </div>
+                                <img 
+                                    src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} 
+                                    alt="QR Code" 
+                                    className="w-64 h-64 object-contain" 
+                                />
                             ) : (
-                                <div className="w-64 h-64 bg-gray-100 flex flex-col items-center justify-center mx-auto rounded-lg animate-pulse mb-4">
-                                    <RefreshCw className="animate-spin text-gray-400 mb-2" size={32} />
-                                    <span className="text-gray-500 text-sm">QR Kod Hazırlanıyor...</span>
+                                <div className="text-gray-400 flex flex-col items-center">
+                                    <Loader2 className="animate-spin mb-2" size={32} />
+                                    <span>Backend'den QR bekleniyor...</span>
+                                    <span className="text-xs mt-2">Bu işlem 5-10 saniye sürebilir.</span>
                                 </div>
                             )}
-                            
-                            <p className="text-sm text-gray-500">
-                                WhatsApp &gt; Ayarlar &gt; Bağlı Cihazlar &gt; Cihaz Bağla
-                            </p>
-                            <button onClick={disconnect} className="mt-6 text-red-500 text-sm hover:underline">
+                        </div>
+
+                        <div className="flex justify-center gap-4">
+                            <button onClick={() => setConfirmDisconnect(true)} className="text-red-500 text-sm hover:underline">
                                 İptal Et
                             </button>
                         </div>
-                    )}
+                    </div>
+                )}
 
-                    {status === 'connected' && (
-                        <div className="py-8">
-                            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 text-green-600">
-                                <Wifi size={40} />
-                            </div>
-                            <h2 className="text-xl font-semibold text-gray-800 mb-2">Bağlantı Başarılı!</h2>
-                            <p className="text-gray-600 mb-6">
-                                WhatsApp hesabınız sisteme bağlı. Artık mesajları buradan yönetebilirsiniz.
-                            </p>
-                            <div className="bg-gray-50 rounded-lg p-4 max-w-xs mx-auto mb-6">
-                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Bağlı Numara</p>
-                                <p className="text-lg font-mono font-bold text-gray-800">{session.phone_number || 'Bilinmiyor'}</p>
-                            </div>
+                {/* STATE: CONNECTED */}
+                {status === 'connected' && (
+                    <div className="space-y-6">
+                        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto text-green-600">
+                            <Wifi size={40} />
+                        </div>
+                        <h2 className="text-xl font-semibold text-green-700">Bağlı</h2>
+                        <div className="bg-green-50 p-4 rounded-lg inline-block">
+                            <p className="text-sm text-gray-500">Telefon Numarası</p>
+                            <p className="text-lg font-mono font-bold">{session?.phone_number}</p>
+                        </div>
+                        <div>
+                            {!confirmDisconnect ? (
+                                <button 
+                                    onClick={() => setConfirmDisconnect(true)}
+                                    className="border border-red-200 text-red-600 px-6 py-2 rounded-lg hover:bg-red-50 transition-colors inline-flex items-center gap-2"
+                                >
+                                    <LogOut size={18} />
+                                    Bağlantıyı Kes
+                                </button>
+                            ) : (
+                                <div className="flex flex-col gap-2 items-center">
+                                    <p className="text-sm text-red-600 font-medium">Emin misiniz?</p>
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={disconnect}
+                                            className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition-colors"
+                                        >
+                                            Evet, Kes
+                                        </button>
+                                        <button 
+                                            onClick={() => setConfirmDisconnect(false)}
+                                            className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-300 transition-colors"
+                                        >
+                                            Vazgeç
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+            </div>
+
+            {/* Custom Confirm Modal for Cancel Scanning */}
+            {status === 'scanning' && confirmDisconnect && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4 text-center">
+                        <h3 className="text-lg font-bold mb-2">İşlemi İptal Et?</h3>
+                        <p className="text-gray-600 mb-6 text-sm">QR kod tarama işlemini iptal etmek istediğinize emin misiniz?</p>
+                        <div className="flex justify-center gap-3">
+                            <button 
+                                onClick={() => setConfirmDisconnect(false)}
+                                className="px-4 py-2 bg-gray-100 rounded-lg text-gray-700 hover:bg-gray-200 transition-colors"
+                            >
+                                Hayır
+                            </button>
                             <button 
                                 onClick={disconnect}
-                                className="border border-red-200 text-red-600 px-6 py-2 rounded-lg hover:bg-red-50 transition-colors flex items-center mx-auto gap-2"
+                                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
                             >
-                                <LogOut size={18} />
-                                Bağlantıyı Kes
+                                Evet, İptal Et
                             </button>
                         </div>
-                    )}
+                    </div>
                 </div>
-            </div>
-
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-800">
-                <h4 className="font-bold mb-2 flex items-center gap-2">
-                    <span className="w-5 h-5 bg-blue-200 rounded-full flex items-center justify-center text-xs">i</span>
-                    Bilgilendirme
-                </h4>
-                <p>
-                    Bu özellik cihazınızda internet bağlantısı gerektirir. WhatsApp Web altyapısı kullanıldığı için
-                    telefonunuzun internete bağlı olduğundan emin olun.
-                </p>
-            </div>
+            )}
         </div>
     );
 }

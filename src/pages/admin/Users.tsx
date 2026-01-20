@@ -13,6 +13,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // New User Form State
   const [newUser, setNewUser] = useState({
@@ -179,13 +180,31 @@ export default function UsersPage() {
                     </span>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <button 
-                    onClick={() => handleDeleteUser(user.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Sil"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  {confirmDeleteId === user.id ? (
+                    <div className="flex items-center justify-end space-x-2">
+                        <span className="text-xs text-red-600 font-medium mr-2">Emin misiniz?</span>
+                        <button 
+                            onClick={() => handleDeleteUser(user.id)}
+                            className="p-1 px-2 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition-colors"
+                        >
+                            Evet
+                        </button>
+                        <button 
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="p-1 px-2 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300 transition-colors"
+                        >
+                            Hayır
+                        </button>
+                    </div>
+                  ) : (
+                    <button 
+                        onClick={() => setConfirmDeleteId(user.id)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Sil"
+                    >
+                        <Trash2 size={18} />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

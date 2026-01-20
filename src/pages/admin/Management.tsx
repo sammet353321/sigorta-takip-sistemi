@@ -106,11 +106,11 @@ function GeneralSettings() {
                 .upsert({ key: 'brand_name', value: brandName }, { onConflict: 'key' });
 
             if (error) throw error;
-            alert('Ayarlar kaydedildi. Sayfa yenilendiğinde geçerli olacaktır.');
-            window.location.reload(); 
+            toast.success('Ayarlar kaydedildi. Sayfa yenilendiğinde geçerli olacaktır.');
+            setTimeout(() => window.location.reload(), 1500);
         } catch (error) {
             console.error('Error saving settings:', error);
-            alert('Hata oluştu.');
+            toast.error('Hata oluştu.');
         }
     }
 
@@ -146,6 +146,7 @@ function CompanyManagement() {
     const [companies, setCompanies] = useState<Company[]>([]);
     const [loading, setLoading] = useState(true);
     const [newCompany, setNewCompany] = useState('');
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
     useEffect(() => {
         fetchCompanies();
@@ -222,12 +223,29 @@ function CompanyManagement() {
                             </div>
                             <span className="font-medium text-gray-800">{company.name}</span>
                         </div>
-                        <button 
-                            onClick={() => handleDeleteCompany(company.id)}
-                            className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-2"
-                        >
-                            <Trash2 size={18} />
-                        </button>
+                        {confirmDeleteId === company.id ? (
+                            <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
+                                <button 
+                                    onClick={() => handleDeleteCompany(company.id)}
+                                    className="p-1 px-2 bg-red-600 text-white rounded text-xs hover:bg-red-700"
+                                >
+                                    Sil
+                                </button>
+                                <button 
+                                    onClick={() => setConfirmDeleteId(null)}
+                                    className="p-1 px-2 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
+                                >
+                                    İptal
+                                </button>
+                            </div>
+                        ) : (
+                            <button 
+                                onClick={() => setConfirmDeleteId(company.id)}
+                                className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-2"
+                            >
+                                <Trash2 size={18} />
+                            </button>
+                        )}
                     </div>
                 ))}
                 {companies.length === 0 && (

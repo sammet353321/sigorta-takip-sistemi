@@ -1,722 +1,160 @@
 require('dotenv').config();
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const { createClient } = require('@supabase/supabase-js');
-const qrcode = require('qrcode');
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const db = require('./src/Database');
+const SessionManager = require('./src/SessionManager');
 
 const app = express();
-const port = process.env.PORT || 10000;
+const port = process.env.PORT || 3004;
 
-app.get('/', (req, res) => {
-  res.send('WhatsApp Bot Backend Running');
-});
+// Active sessions: userId -> SessionManager
+const sessions = new Map();
 
-app.listen(port, () => {
-  console.log(`Web server listening on port ${port}`);
-});
+// --- SERVER ---
+app.get('/', (req, res) => res.send('WhatsApp Backend v3 (Optimized)'));
+app.listen(port, () => console.log(`Server running on port ${port}`));
 
-// Supabase Setup
-const SUPABASE_URL = 'https://aqubbkxsfwmhfbolkfah.supabase.co';
-// WARNING: Using service_role key is necessary for backend operations that bypass RLS
-// Ensure this key is kept secret and not exposed to frontend
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// --- LISTENERS ---
+db.client
+    .channel('whatsapp-backend-v3')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_sessions' }, 
+    async (payload) => {
+        const session = payload.new;
+        if (!session) return;
 
-if (!SUPABASE_KEY) {
-    console.error("FATAL ERROR: SUPABASE_SERVICE_ROLE_KEY is missing from environment variables.");
-    // We don't exit process so web server keeps running to show logs
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY || 'placeholder');
-
-// Listen for Group Creation Requests (status = 'creating')
-const groupCreateChannel = supabase
-    .channel('whatsapp-group-creation')
-    .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_groups', filter: 'status=eq.creating' },
-        async (payload) => {
-            console.log('Group creation request:', payload.new);
-            const group = payload.new;
-            
-            // Try to create group using the SPECIFIC admin client who requested it
-            let created = false;
-            let targetClient = null;
-
-            if (group.created_by && clients.has(group.created_by)) {
-                // If we know who created it, use their client
-                console.log(`Using specific client for creator: ${group.created_by}`);
-                targetClient = clients.get(group.created_by);
-            } else {
-                // Fallback: Use first available admin client (old behavior)
-                console.log('Creator client not found or not specified, falling back to any admin.');
-                if (clients.size === 0) {
-                    console.error('No active WhatsApp clients connected. Cannot create group.');
-                }
-                for (const [userId, client] of clients.entries()) {
-                    if (client.info) {
-                        targetClient = client;
-                        break;
-                    }
-                }
-            }
-
-            if (targetClient && targetClient.info) {
-                try {
-                    console.log(`Creating group "${group.name}"...`);
-                    
-                    // Attempt create with empty participants
-                    const result = await targetClient.createGroup(group.name, []);
-                    
-                    if (result && result.gid) {
-                        console.log('Group created on WhatsApp:', result);
-                        
-                        // Fix Permissions: Allow everyone to send messages
-                        try {
-                            // Fetch the newly created chat object to update permissions
-                            const chat = await targetClient.getChatById(result.gid._serialized);
-                            await chat.setMessagesAdminsOnly(false); // All participants can send messages
-                            // await chat.setInfoAdminsOnly(true); // Only admins can change group info (optional)
-                            console.log('Group permissions updated: Everyone can send messages.');
-                        } catch (permErr) {
-                            console.error('Error setting group permissions:', permErr);
-                        }
-
-                        // Update DB with real JID and status
-                        await supabase
-                            .from('chat_groups')
-                            .update({ 
-                                group_jid: result.gid._serialized,
-                                status: 'active',
-                                updated_at: new Date().toISOString()
-                            })
-                            .eq('id', group.id);
-                        
-                        created = true;
-                    }
-                } catch (err) {
-                    console.error(`Error creating group:`, err);
-                }
-            } else {
-                 console.error('No suitable client found to create group.');
-            }
-
-            if (!created) {
-                console.error('Failed to create group on WhatsApp.');
-                // Mark as failed in DB
-                await supabase
-                    .from('chat_groups')
-                    .update({ status: 'failed_creation' })
-                    .eq('id', group.id);
-            }
-        }
-    )
-    .subscribe();
-
-// Listen for Group Deletion Requests (status = 'deleting')
-const groupUpdateChannel = supabase
-    .channel('whatsapp-group-updates')
-    .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'chat_groups', filter: 'status=eq.deleting' },
-        async (payload) => {
-            console.log('Group marked for deletion:', payload.new);
-            const group = payload.new;
-            
-            if (!group || !group.group_jid) {
-                console.log('Skipping deletion on WA: No JID');
-                // Just delete from DB
-                 await supabase.from('chat_groups').delete().eq('id', group.id);
-                 return;
-            }
-
-            console.log(`Attempting to leave group ${group.group_jid} across ${clients.size} clients.`);
-
-            // Iterate through all active clients and try to leave the group
-            for (const [userId, client] of clients.entries()) {
-                try {
-                    // Check if client is ready
-                    if (!client.info) {
-                        console.log(`Client for ${userId} not ready.`);
-                        continue;
-                    }
-
-                    console.log(`Checking chat for user ${userId}...`);
-                    const chat = await client.getChatById(group.group_jid);
-                    
-                    if (chat) {
-                        console.log(`Leaving group ${group.name} (${group.group_jid}) for user ${userId}`);
-                        
-                        // Wait for leave to complete
-                        try {
-                            await chat.leave();
-                            console.log('Left group successfully.');
-                            
-                            // Delete chat from list to verify it's gone from phone UI
-                            await chat.delete();
-                            console.log('Chat deleted from list successfully.');
-                        } catch (leaveErr) {
-                            console.error('Error during chat.leave() or chat.delete():', leaveErr);
-                            // Even if error, we might still want to proceed or retry?
-                        }
-
-                    } else {
-                        console.log(`Chat ${group.group_jid} not found for user ${userId}`);
-                        // Try to get chat by ID again just in case it wasn't cached?
-                        // const chat = await client.getChatById(group.group_jid);
-                    }
-                } catch (err) {
-                    console.error(`Error leaving group for ${userId}:`, err);
-                }
-            }
-
-            // Finally, delete the group from DB
-            // We do this AFTER trying to leave.
-            // If leave fails, we still delete from DB because user wants it gone from panel?
-            // User said: "grubu filen ekleme ve çıkma yapmıyor sorun bu"
-            // If we fail to leave, maybe we should NOT delete from DB and mark as 'error'?
-            // But for now, let's proceed with deletion so it doesn't get stuck in 'deleting'.
-            
-            console.log(`Deleting group ${group.id} from DB...`);
-            const { error } = await supabase.from('chat_groups').delete().eq('id', group.id);
-            if (error) console.error('Error deleting group from DB:', error);
-        }
-    )
-    .subscribe();
-
-// Listen for Group Member Additions
-const groupMemberChannel = supabase
-    .channel('whatsapp-group-members')
-    .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_group_members' },
-        async (payload) => {
-            console.log('Member addition request:', payload.new);
-            const member = payload.new;
-            
-            // Get group details to find JID
-            const { data: groupData } = await supabase
-                .from('chat_groups')
-                .select('group_jid')
-                .eq('id', member.group_id)
-                .single();
-
-            if (!groupData || !groupData.group_jid) {
-                 console.log('Skipping member add on WA: No JID');
-                 return;
-            }
-
-            const phoneToAdd = member.phone + '@c.us'; // Format: 90555...@c.us
-
-            // Find an admin client to perform the add
-            let added = false;
-            for (const [userId, client] of clients.entries()) {
-                if (!client.info) continue;
-
-                try {
-                    const chat = await client.getChatById(groupData.group_jid);
-                    if (chat && chat.isGroup) {
-                        console.log(`Adding ${phoneToAdd} to group ${groupData.group_jid} via ${userId}`);
-                        await chat.addParticipants([phoneToAdd]);
-                        console.log('Participant added successfully.');
-                        added = true;
-                        break;
-                    }
-                } catch (err) {
-                    console.error(`Error adding participant via ${userId}:`, err);
-                }
-            }
-            
-            if (!added) console.error('Failed to add participant on WhatsApp.');
-        }
-    )
-    .subscribe();
-
-
-// Listen for Outbound Messages (status = 'pending', direction = 'outbound')
-const messageOutboundChannel = supabase
-    .channel('whatsapp-outbound-messages')
-    .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: "direction=eq.outbound" },
-        async (payload) => {
-            console.log('Outbound message request:', payload.new);
-            const message = payload.new;
-            
-            // 1. Find the right client (bot) to send this message
-            // We need to know which group this message belongs to, and which bot is a member of that group.
-            
-            if (!message.group_id) {
-                console.error('Message has no group_id, cannot send.');
-                return;
-            }
-
-            // Get group details to find JID
-            const { data: groupData } = await supabase
-                .from('chat_groups')
-                .select('group_jid')
-                .eq('id', message.group_id)
-                .single();
-
-            if (!groupData || !groupData.group_jid) {
-                 console.error('Group not found or has no JID:', message.group_id);
-                 return;
-            }
-
-            // Find a client that is a member of this group (or just use Admin client for now)
-            // Ideally, we should check 'chat_group_members' table to see which user (bot) is in this group.
-            // For simplicity, we'll try to find ANY connected client that can see this chat.
-            
-            let sent = false;
-            for (const [userId, client] of clients.entries()) {
-                if (!client.info) continue;
-
-                try {
-                    const chat = await client.getChatById(groupData.group_jid);
-                    if (chat) {
-                        console.log(`Sending message via user ${userId} to ${groupData.group_jid}`);
-                        await chat.sendMessage(message.content);
-                        
-                        // Update message status to 'sent'
-                        await supabase
-                            .from('messages')
-                            .update({ status: 'sent', updated_at: new Date().toISOString() })
-                            .eq('id', message.id);
-                            
-                        sent = true;
-                        break;
-                    }
-                } catch (err) {
-                    // This client might not be in the group, try next
-                    console.error(`Failed to send via ${userId}:`, err.message);
-                }
-            }
-
-            if (!sent) {
-                console.error('Failed to send message: No connected client has access to this group.');
-                await supabase
-                    .from('messages')
-                    .update({ status: 'failed' })
-                    .eq('id', message.id);
-            }
-        }
-    )
-    .subscribe();
-
-
-// Active Clients Map: userId -> Client
-const clients = new Map();
-
-console.log('WhatsApp Backend Service Started...');
-
-// Listen for Session Changes
-const channel = supabase
-    .channel('whatsapp-backend-listener')
-    .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'whatsapp_sessions' },
-        async (payload) => {
-            console.log('Change detected:', payload.eventType, payload.new?.id);
-            const session = payload.new;
-            
-            if (!session) return;
-
-            // If status is 'scanning' and we don't have a client for this user, start one
-            if (session.status === 'scanning' && !clients.has(session.user_id)) {
-                console.log(`Initializing client for user: ${session.user_id}`);
-                await initializeClient(session.user_id);
-            }
-            
-            // If status is 'disconnected', destroy client
-            if (session.status === 'disconnected' && clients.has(session.user_id)) {
-                console.log(`Destroying client for user: ${session.user_id}`);
-                const client = clients.get(session.user_id);
-                try {
-                    await client.destroy();
-                } catch (e) { console.error('Error destroying client:', e); }
-                clients.delete(session.user_id);
-            }
-        }
-    )
-    .subscribe();
-
-// Also check for existing 'scanning' or 'connected' sessions on startup (simplified)
-async function checkExistingSessions() {
-    const { data } = await supabase.from('whatsapp_sessions').select('*').in('status', ['scanning', 'connected']);
-    if (data) {
-        for (const session of data) {
-            if (!clients.has(session.user_id)) {
-                console.log(`Restoring/Initializing session for ${session.user_id} (${session.status})`);
-                initializeClient(session.user_id);
-            }
-        }
-    }
-}
-checkExistingSessions();
-
-async function initializeClient(userId) {
-    // 0. Clean up any existing session if starting fresh scanning
-    if (clients.has(userId)) {
-        console.log(`Destroying existing memory client for ${userId} before re-init`);
-        const oldClient = clients.get(userId);
-        try { 
-            await oldClient.destroy();
-            // Wait a bit for puppeteer process to fully die
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        } catch(e) {
-            console.error('Error destroying old client:', e.message);
-        }
-        clients.delete(userId);
-    }
-    
-    // If status is scanning, it means we want a NEW QR, so delete old session.
-    // However, if we are restarting server and status is 'connected', we keep it.
-    
-    const { data: sessionData } = await supabase
-        .from('whatsapp_sessions')
-        .select('status')
-        .eq('user_id', userId)
-        .single();
-
-    if (sessionData && sessionData.status === 'scanning') {
-        const sessionPath = path.join(__dirname, '.wwebjs_auth', `session-${userId}`);
-        if (fs.existsSync(sessionPath)) {
-            console.log(`Force clearing old session for new connection: ${userId}`);
-            try {
-                fs.rmSync(sessionPath, { recursive: true, force: true });
-            } catch (err) {
-                console.error(`Error clearing old session:`, err);
-            }
-        }
-    }
-
-    // Note: Using LocalAuth with a clientId allows saving session data locally
-    const client = new Client({
-        authStrategy: new LocalAuth({ clientId: userId }),
-        puppeteer: {
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--disable-gpu',
-                '--disable-features=IsolateOrigins,site-per-process', // Medya ve iFrame hataları için
-                '--aggressive-cache-discard',
-                '--disable-cache',
-                '--disable-application-cache',
-                '--disable-offline-load-stale-cache',
-                '--disk-cache-size=0'
-            ],
-            timeout: 0 // Sonsuz timeout, Render yavas olabilir
-        }
-    });
-
-    clients.set(userId, client);
-
-    client.on('qr', async (qr) => {
-        console.log(`QR Generated for ${userId}`);
-        try {
-            // Convert QR to Data URL
-            const dataUrl = await qrcode.toDataURL(qr);
-            
-            // Update Supabase
-            const { error } = await supabase
-                .from('whatsapp_sessions')
-                .update({ qr_code: dataUrl, updated_at: new Date().toISOString() })
-                .eq('user_id', userId);
-            
-            if (error) {
-                console.error(`Error saving QR to DB for ${userId}:`, error);
-            } else {
-                console.log(`QR saved to DB for ${userId}`);
-            }
-        } catch (err) {
-            console.error('Error handling QR:', err);
-        }
-    });
-
-    client.on('ready', async () => {
-        console.log(`Client is ready for ${userId}!`);
-        const info = client.info;
-        const phone = info.wid.user; // e.g. 905551234567
+        const userId = session.user_id;
         
-        await supabase
-            .from('whatsapp_sessions')
-            .update({ 
-                status: 'connected', 
-                qr_code: null, 
-                phone_number: phone,
-                updated_at: new Date().toISOString() 
-            })
-            .eq('user_id', userId);
-
-        // Fetch and Sync Groups
-        try {
-            console.log('Fetching chats for', userId);
-            const chats = await client.getChats();
-            const groups = chats.filter(chat => chat.isGroup);
+        // 1. Start / Scan
+        if (session.status === 'scanning') {
+            // If already managing this user, check if we need to restart
+            let manager = sessions.get(userId);
             
-            console.log(`Found ${groups.length} groups.`);
-
-            // Get User Role to decide sync logic
-            const { data: userData, error: userError } = await supabase
-                .from('users')
-                .select('role')
-                .eq('id', userId)
-                .single();
-
-            if (userError) {
-                console.error('Error fetching user role:', userError);
-                return;
+            if (!manager) {
+                manager = new SessionManager(userId);
+                sessions.set(userId, manager);
             }
 
-            const isAdmin = userData.role === 'admin';
+            // Only start if not already initializing or connected
+            // But if 'scanning' is requested, it usually means user clicked "QR Code" again
+            // So we should probably force restart if not already doing so
+            if (!manager.isInitializing && !manager.sock?.user) {
+                manager.start();
+            }
+        }
 
-            for (const group of groups) {
-                // FILTER: Skip unnamed groups or temporary groups
-                if (!group.name) continue;
+        // 2. Disconnect
+        if (session.status === 'disconnected') {
+            const manager = sessions.get(userId);
+            if (manager) {
+                await manager.stop();
+                sessions.delete(userId);
+            }
+        }
+    })
+    .subscribe();
+
+// --- GROUP & MESSAGE LISTENERS ---
+db.client
+    .channel('whatsapp-groups')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_groups' }, 
+    async (payload) => {
+        const group = payload.new;
+        if (!group) return; // Delete event?
+
+        // Find active session (Assume single user for now or find owner)
+        // In multi-tenant, we need to know which user owns this group.
+        // For now, take the first active session.
+        const manager = sessions.values().next().value;
+        if (!manager) return;
+
+        // 1. CREATE GROUP
+        if (group.status === 'creating') {
+            console.log('Creating group:', group.name);
+            const res = await manager.createGroup(group.name, []); // Participants empty initially
+            
+            if (res.success) {
+                // Update DB with real WA ID and active status
+                // BUT: We can't change ID easily if it's primary key.
+                // So we delete the temp row and insert new one with WA ID?
+                // OR we have a separate 'wa_group_id' column.
                 
-                // FILTER: Skip groups that look like raw JIDs (e.g. "120363...") unless they have been renamed
-                // Usually legitimate groups have a proper name.
-                // Regex to check if name is just numbers or JID-like
-                if (/^\d+$/.test(group.name) || group.name.startsWith('Grup 1203')) {
-                     // console.log('Skipping likely unnamed group:', group.name);
-                     continue;
-                }
-
-                let groupId = null;
-
-                if (isAdmin) {
-                    // Admin: Master Sync (Create/Update Groups)
-                    const groupName = group.name;
-                    
-                    const { data: groupData, error: groupError } = await supabase
-                        .from('chat_groups')
-                        .upsert({
-                            group_jid: group.id._serialized,
-                            name: groupName,
-                            is_whatsapp_group: true,
-                            updated_at: new Date().toISOString()
-                        }, { onConflict: 'group_jid' })
-                        .select()
-                        .single();
-
-                    if (groupError) {
-                        console.error('Error syncing group (Admin):', groupError);
-                        continue;
-                    }
-                    groupId = groupData.id;
-
-                } else {
-                    // Employee: Match Existing Groups (Name or JID)
-                    
-                    // 1. Try JID Match first (Strongest match)
-                    let { data: existingGroup } = await supabase
-                        .from('chat_groups')
-                        .select('id')
-                        .eq('group_jid', group.id._serialized)
-                        .single();
-                    
-                    // 2. If no JID match, try Name Match (Weak match, as requested by user)
-                    if (!existingGroup) {
-                         const { data: nameMatchGroup } = await supabase
-                            .from('chat_groups')
-                            .select('id')
-                            .eq('name', group.name)
-                            .single();
-                         existingGroup = nameMatchGroup;
-                    }
-
-                    if (existingGroup) {
-                        groupId = existingGroup.id;
-                    } else {
-                        // Group does not exist in Admin's list, skip.
-                        // console.log(`Skipping personal group: ${group.name}`);
-                        continue;
-                    }
-                }
-
-                if (groupId) {
-                    // Sync Participants / Add Current User to Group Members
-                    // For the current user (who is connecting):
-                    const info = client.info;
-                    const myPhone = info.wid.user;
-
-                    // Add myself to the group members in DB
-                    await supabase
-                        .from('chat_group_members')
-                        .upsert({
-                            group_id: groupId,
-                            phone: myPhone,
-                            name: userData.role === 'admin' ? 'Yönetici' : 'Personel' // Or fetch real name
-                        }, { onConflict: 'group_id, phone' });
-
-                    // Optionally sync other participants if Admin?
-                    // For now, let's keep it simple. The most important thing is linking the connected user.
-                }
-            }
-        } catch (err) {
-            console.error('Error syncing groups:', err);
-        }
-    });
-
-    client.on('message', async (msg) => {
-        // Handle incoming messages
-        try {
-            // Only handle inbound
-            if (msg.fromMe) return;
-
-            const senderPhone = msg.from.replace('@c.us', '');
-            const chatJid = msg.from; // This is the group JID if it's a group message
-            
-            // Find which group this message belongs to
-            // Note: msg.from is the sender JID. If it's a group, msg.from is group JID in some libraries,
-            // or msg.author is the sender and msg.from is group.
-            // In whatsapp-web.js: 
-            // - Group msg: msg.from = groupJid, msg.author = senderJid
-            // - Private msg: msg.from = senderJid, msg.author = undefined
-            
-            let groupJid = msg.from;
-            let actualSender = senderPhone;
-
-            if (msg.author) {
-                // It's a group message
-                groupJid = msg.from;
-                actualSender = msg.author.replace('@c.us', '');
-            }
-
-            // Find group in DB
-            const { data: groupData } = await supabase
-                .from('chat_groups')
-                .select('id')
-                .eq('group_jid', groupJid)
-                .single();
-            
-            const groupId = groupData ? groupData.id : null;
-            
-            // If message is from a group we don't know, maybe we should ignore it or auto-create?
-            // For now, only save if we know the group (or if it's a DM and we want to support DMs later)
-            
-            // User requirement: Only care about groups.
-            if (!groupId) {
-                 // console.log('Message from unknown group/chat:', groupJid);
-                 return; 
-            }
-
-            // CHECK DUPLICATE: Prevent processing the same message twice
-            const { data: existingMsg } = await supabase
-                .from('messages')
-                .select('id')
-                .eq('wa_message_id', msg.id.id)
-                .single();
-
-            if (existingMsg) {
-                 // console.log('Duplicate message skipped:', msg.id.id);
-                 return;
-            }
-
-            // Handle Media
-            let mediaUrl = null;
-            let messageType = 'text';
-
-            if (msg.hasMedia) {
-                try {
-                    const media = await msg.downloadMedia();
-                    if (media) {
-                        // Create Data URL
-                        mediaUrl = `data:${media.mimetype};base64,${media.data}`;
-                        messageType = 'image';
-                    }
-                } catch (mediaErr) {
-                    console.error('Error downloading media:', mediaErr);
-                }
-            }
-
-            const { error } = await supabase.from('messages').insert({
-                group_id: groupId, // CRITICAL FIX: Link message to group
-                sender_phone: actualSender,
-                direction: 'inbound',
-                type: messageType, 
-                content: msg.body,
-                media_url: mediaUrl,
-                wa_message_id: msg.id.id, // Store WA ID for duplicate check
-                created_at: new Date(msg.timestamp * 1000).toISOString(),
-            });
-            
-            if (error) {
-                // Ignore unique constraint violation (duplicate message)
-                if (error.code === '23505') {
-                    // console.log('Duplicate message ignored (DB constraint):', msg.id.id);
-                } else {
-                    console.error('Error saving message:', error);
-                }
+                // Hack: Update the current row to 'active' and store wa_id if column exists.
+                // Since we use 'id' as primary key which is UUID in Supabase but JID in WA.
+                // We should probably delete the temp UUID row and insert the WA JID row.
+                
+                await db.client.from('chat_groups').delete().eq('id', group.id);
+                await db.client.from('chat_groups').insert({
+                    id: res.gid, // WA JID
+                    name: group.name,
+                    is_whatsapp_group: true,
+                    status: 'active',
+                    created_by: group.created_by
+                });
             } else {
-                console.log(`Saved inbound message from ${actualSender} in group ${groupId}`);
+                await db.client.from('chat_groups').update({ status: 'failed' }).eq('id', group.id);
             }
-            
-        } catch (err) {
-            console.error('Error handling incoming message:', err);
         }
-    });
 
-    client.on('disconnected', async (reason) => {
-        console.log(`Client was logged out: ${userId}`, reason);
-        await supabase
-            .from('whatsapp_sessions')
-            .update({ status: 'disconnected', qr_code: null })
-            .eq('user_id', userId);
-        
-        try {
-            await client.destroy();
-        } catch (e) {
-            console.error('Error destroying client:', e);
+        // 2. DELETE GROUP
+        if (group.status === 'deleting') {
+            console.log('Deleting/Leaving group:', group.id);
+            await manager.deleteGroup(group.id);
+            // Finally delete from DB
+            await db.client.from('chat_groups').delete().eq('id', group.id);
         }
-        clients.delete(userId);
+    })
+    .subscribe();
 
-        // Clean up session directory with delay and retry
-        const sessionPath = path.join(__dirname, '.wwebjs_auth', `session-${userId}`);
-        
-        setTimeout(() => {
-            if (fs.existsSync(sessionPath)) {
-                console.log(`Deleting session files for ${userId}...`);
-                try {
-                    fs.rmSync(sessionPath, { recursive: true, force: true });
-                    console.log(`Session files deleted for ${userId}`);
-                } catch (err) {
-                    console.error(`Error deleting session files for ${userId} (Attempt 1):`, err);
-                    // Retry once more after 2 seconds
-                    setTimeout(() => {
-                        try {
-                            if (fs.existsSync(sessionPath)) {
-                                fs.rmSync(sessionPath, { recursive: true, force: true });
-                                console.log(`Session files deleted for ${userId} (Attempt 2)`);
-                            }
-                        } catch (retryErr) {
-                             console.error(`Error deleting session files for ${userId} (Final Attempt):`, retryErr);
-                        }
-                    }, 2000);
-                }
+// --- MESSAGE LISTENER ---
+db.client
+    .channel('whatsapp-messages')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, 
+    async (payload) => {
+        const msg = payload.new;
+        if (msg.status === 'pending' && msg.direction === 'outbound') {
+            let manager;
+            // 1. Try to find the specific session for this user
+            if (msg.user_id) {
+                manager = sessions.get(msg.user_id);
             }
-        }, 3000); // Wait 3 seconds for Puppeteer to fully close locks
-    });
 
+            // 2. Fallback: Take the first available session (legacy behavior)
+            if (!manager) {
+                manager = sessions.values().next().value;
+            }
+
+            if (manager) {
+                const target = msg.group_id || msg.sender_phone;
+                await manager.sendMessage(target, msg.content);
+                await db.client.from('messages').update({ status: 'sent' }).eq('id', msg.id);
+            } else {
+                console.log(`No active session found to send message ${msg.id}`);
+            }
+        }
+    })
+    .subscribe();
+
+console.log('Backend v3 initialized and listening for changes...');
+
+// --- RESTORE ACTIVE SESSIONS ---
+(async () => {
     try {
-        await client.initialize();
-    } catch (err) {
-        console.error(`Initialization failed for ${userId}:`, err);
+        const { data: sessionsData } = await db.client
+            .from('whatsapp_sessions')
+            .select('*')
+            .eq('status', 'connected');
+
+        if (sessionsData && sessionsData.length > 0) {
+            console.log(`Found ${sessionsData.length} active sessions. Restoring...`);
+            for (const s of sessionsData) {
+                const manager = new SessionManager(s.user_id);
+                sessions.set(s.user_id, manager);
+                // Start in reconnect mode
+                manager.start(true).catch(err => {
+                    console.error(`Failed to restore session for ${s.user_id}:`, err);
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error restoring sessions:', error);
     }
-}
-
-// Catch unhandled errors to prevent server crash
-process.on('uncaughtException', (err) => {
-    console.error('UNCAUGHT EXCEPTION:', err.message);
-    // Do not exit, keep server running if possible
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('UNHANDLED REJECTION:', reason);
-});
+})();

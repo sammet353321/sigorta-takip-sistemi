@@ -5,6 +5,7 @@ import { traeBadgePlugin } from 'vite-plugin-trae-solo-badge';
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: './', // Important for Electron to load assets from file://
   server: {
     host: true,
     allowedHosts: [

@@ -55,18 +55,29 @@ export default function Layout() {
 
   const handleSignOut = async () => {
     try {
-        // Attempt Supabase signOut but force navigation even if it fails
+        // Attempt Supabase signOut
+        // We don't force navigation in finally block to avoid race conditions. 
+        // AuthContext will detect session change and redirect automatically via PrivateRoute or its own logic.
         const { error } = await supabase.auth.signOut();
         if (error) {
-             if (error.code !== '20' && !error.message?.includes('aborted')) {
+             // Ignore network abort errors which happen if page navigates away immediately
+             if (error.code !== '20' && !error.message?.includes('aborted') && !error.message?.includes('Failed to fetch')) {
                  console.error('SignOut error:', error);
              }
         }
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      navigate('/login', { replace: true });
+    } catch (error: any) {
+        // Ignore aborts
+        if (!error.message?.includes('aborted')) {
+            console.error('Logout error:', error);
+        }
     }
+    // We let AuthContext handle the redirect when session becomes null.
+    // If we navigate here manually, we might race with the context update.
+    // But to be safe if context doesn't trigger, we can navigate after a small delay if user is still here.
+    // However, simplest fix for ERR_ABORTED is to just fire and forget or await without strict dependency on result.
+    // For now, removing explicit navigate(replace) to see if AuthContext handles it cleaner, 
+    // OR keeping it but ensuring we catch the abort.
+    navigate('/login', { replace: true });
   };
 
   if (!user) return null;
@@ -186,18 +197,8 @@ export default function Layout() {
                 <span className="font-bold text-lg truncate max-w-[150px]">{brandName}</span>
                 </div>
                 <div className="flex items-center space-x-4">
-                    {/* Mobile Notification Bell */}
-                    <button 
-                        onClick={() => setIsNotificationPanelOpen(!isNotificationPanelOpen)} 
-                        className="relative text-gray-300 hover:text-white"
-                    >
-                        <Bell size={24} />
-                        {unreadCount > 0 && (
-                            <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[16px] text-center border-2 border-slate-900">
-                                {unreadCount > 99 ? '99+' : unreadCount}
-                            </span>
-                        )}
-                    </button>
+                    {/* Mobile Notification Bell Removed */}
+                    
                     <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
                     {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
                     </button>
@@ -261,62 +262,7 @@ export default function Layout() {
                         </h2>
                         <div className="flex items-center space-x-4">
                             <div className="relative">
-                                <button 
-                                    onClick={() => {
-                                        setIsNotificationPanelOpen(!isNotificationPanelOpen);
-                                        if (!isNotificationPanelOpen) {
-                                            // setUnreadCount(0);
-                                        }
-                                    }} 
-                                    className="p-2 text-gray-500 hover:text-amber-500 transition-colors relative"
-                                >
-                                    <Bell size={24} />
-                                    {unreadCount > 0 && (
-                                        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center border-2 border-white">
-                                            {unreadCount > 99 ? '99+' : unreadCount}
-                                        </span>
-                                    )}
-                                </button>
-                                
-                                {isNotificationPanelOpen && (
-                                    <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
-                                        <div className="bg-gray-50 px-4 py-3 border-b border-gray-100 flex justify-between items-center">
-                                            <h3 className="font-bold text-gray-800 text-sm">Bildirimler</h3>
-                                            {unreadCount > 0 && (
-                                                <button onClick={() => markAllAsRead()} className="text-xs text-blue-600 hover:underline">Tümünü Okundu Say</button>
-                                            )}
-                                        </div>
-                                        <div className="max-h-80 overflow-y-auto">
-                                            {recentNotifications.length === 0 ? (
-                                                <div className="p-8 text-center text-gray-400 text-sm">Yeni bildirim yok.</div>
-                                            ) : (
-                                                <div className="divide-y divide-gray-100">
-                                                    {recentNotifications.map((notif) => (
-                                                        <div key={notif.id} className={`p-3 hover:bg-blue-50 transition-colors cursor-pointer flex items-start space-x-3 ${!notif.is_read ? 'bg-blue-50/50' : ''}`}>
-                                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                                                                notif.type === 'success' ? 'bg-green-100 text-green-600' :
-                                                                notif.type === 'warning' ? 'bg-amber-100 text-amber-600' :
-                                                                notif.type === 'error' ? 'bg-red-100 text-red-600' :
-                                                                'bg-blue-100 text-blue-600'
-                                                            }`}>
-                                                                <MessageCircle size={14} />
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <p className="text-sm font-bold text-gray-800 truncate">{notif.content}</p>
-                                                                <p className="text-[10px] text-gray-400 mt-1">{new Date(notif.created_at).toLocaleTimeString('tr-TR', {hour: '2-digit', minute:'2-digit'})}</p>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="p-2 border-t border-gray-100 bg-gray-50 text-center">
-                                            <Link to="/employee/messages" onClick={() => setIsNotificationPanelOpen(false)} className="text-xs font-bold text-blue-600 hover:text-blue-800 block w-full py-1">
-                                                Tüm Mesajları Gör
-                                            </Link>
-                                        </div>
-                                    </div>
-                                )}
+                                {/* Notification Panel Removed */}
                             </div>
                         </div>
                     </header>

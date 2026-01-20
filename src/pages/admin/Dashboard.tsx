@@ -64,10 +64,10 @@ export default function AdminDashboard() {
   async function fetchDashboardData() {
         if (!navigator.onLine) return; // Optional check
 
-        const controller = new AbortController();
-        // We could pass controller.signal to supabase calls if supported, but Supabase JS client handles it differently or not directly exposed in simple queries.
-        // Instead, we just wrap in try-catch and check for abort error if we were using raw fetch.
-        // Since Supabase doesn't support abort signal natively in all builders easily, we just suppress the specific error.
+        // Supabase JS Client v2 handles aborts internally if connection drops, 
+        // but explicit signal passing isn't strictly required for simple queries unless we want to cancel them manually.
+        // We remove the explicit AbortController usage here to prevent premature cancellations if that was the issue,
+        // or we can wrap calls to ignore specific abort errors more gracefully.
 
         try {
             const today = new Date();
@@ -94,7 +94,7 @@ export default function AdminDashboard() {
             // --- Row 2: Bu Ay (Detaylı veri çekiyoruz ki personel tablosunu dolduralım) ---
             const { data: monthQuotesData, count: monthQuotes, error: err5 } = await supabase
                 .from('teklifler')
-                .select('id, kesen_id, tarih, urun_kategorisi') // Added urun_kategorisi
+                .select('id, kesen_id, tarih, tur') // Changed urun_kategorisi to tur
                 .gte('tarih', startOfMonth);
             if (err5 && err5.code !== '20') throw err5;
 
